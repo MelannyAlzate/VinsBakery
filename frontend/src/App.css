@@ -1,0 +1,714 @@
+/* frontend/src/App.css */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #ffeef8 0%, #ffe0f0 100%);
+  color: #333;
+}
+
+/* ========== LOGIN ========== */
+
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #ffc0e0 0%, #ffb3d9 50%, #ffa6d2 100%);
+}
+
+.login-box {
+  background: white;
+  padding: 40px;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(255, 105, 180, 0.3);
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+}
+
+.login-box h1 {
+  color: #ff69b4;
+  font-size: 2.5em;
+  margin-bottom: 10px;
+}
+
+.login-box p {
+  color: #666;
+  margin-bottom: 30px;
+}
+
+.login-box form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.login-box input {
+  padding: 15px;
+  border: 2px solid #ffb3d9;
+  border-radius: 10px;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.login-box input:focus {
+  outline: none;
+  border-color: #ff69b4;
+  box-shadow: 0 0 10px rgba(255, 105, 180, 0.3);
+}
+
+.login-box button {
+  padding: 15px;
+  background: linear-gradient(135deg, #ff69b4 0%, #ff85c1 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.login-box button:hover {
+  transform: scale(1.05);
+}
+
+.login-box small {
+  display: block;
+  margin-top: 20px;
+  color: #999;
+  font-size: 12px;
+}
+
+/* Estilos adicionales para registro */
+.btn-login,
+.btn-registro {
+  padding: 15px;
+  background: linear-gradient(135deg, #ff69b4 0%, #ff85c1 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+  width: 100%;
+}
+
+.btn-registro-toggle,
+.btn-volver-login {
+  padding: 12px;
+  background: linear-gradient(135deg, #ff85c1 0%, #ffb3d9 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.btn-registro-toggle:hover,
+.btn-volver-login:hover {
+  background: linear-gradient(135deg, #ffb3d9 0%, #ffc0e0 100%);
+  transform: scale(1.02);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 20px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #ffcceb;
+}
+
+.divider span {
+  padding: 0 10px;
+  color: #999;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.registro-titulo {
+  color: #ff69b4;
+  font-size: 1.8em;
+  margin-bottom: 20px;
+}
+
+.info-login {
+  background: #fff5fc;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ffcceb;
+  display: block;
+  margin-top: 15px;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ========== LAYOUT PRINCIPAL ========== */
+
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  background: linear-gradient(180deg, #ff69b4 0%, #ff85c1 100%);
+  color: white;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 4px 0 15px rgba(255, 105, 180, 0.2);
+}
+
+.sidebar h2 {
+  font-size: 1.8em;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.user-info {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.user-info p {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.user-info span {
+  font-size: 0.9em;
+  opacity: 0.9;
+}
+
+.sidebar nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar nav button {
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: white;
+  border-radius: 10px;
+  font-size: 16px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.3s;
+}
+
+.sidebar nav button:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateX(5px);
+}
+
+.sidebar nav button.active {
+  background: white;
+  color: #ff69b4;
+  font-weight: bold;
+}
+
+.logout-btn {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid white;
+  color: white;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-top: 20px;
+  transition: all 0.3s;
+}
+
+.logout-btn:hover {
+  background: white;
+  color: #ff69b4;
+}
+
+/* Contenido Principal */
+.main-content {
+  flex: 1;
+  padding: 30px;
+  overflow-y: auto;
+  background: linear-gradient(135deg, #fff5fc 0%, #ffe6f7 100%);
+}
+
+.main-content h1 {
+  color: #ff69b4;
+  margin-bottom: 30px;
+  font-size: 2.5em;
+}
+
+.main-content h2 {
+  color: #ff85c1;
+  margin-bottom: 20px;
+  font-size: 1.8em;
+}
+
+/* ========== ESTADÍSTICAS ========== */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.stat-card {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px rgba(255, 105, 180, 0.15);
+  text-align: center;
+  transition: transform 0.3s;
+}
+
+.stat-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(255, 105, 180, 0.25);
+}
+
+.stat-card h3 {
+  color: #666;
+  font-size: 1em;
+  margin-bottom: 15px;
+}
+
+.stat-number {
+  font-size: 2.5em;
+  font-weight: bold;
+  color: #ff69b4;
+}
+
+/* ========== SECCIONES ========== */
+
+.section {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px rgba(255, 105, 180, 0.15);
+  margin-bottom: 30px;
+}
+
+/* ========== FORMULARIOS ========== */
+
+.form-card {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px rgba(255, 105, 180, 0.15);
+  margin-bottom: 30px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  padding: 12px;
+  border: 2px solid #ffcceb;
+  border-radius: 8px;
+  font-size: 15px;
+  transition: all 0.3s;
+}
+
+.form-grid input:focus,
+.form-grid select:focus,
+.form-grid textarea:focus {
+  outline: none;
+  border-color: #ff69b4;
+  box-shadow: 0 0 10px rgba(255, 105, 180, 0.2);
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  grid-column: 1 / -1;
+}
+
+/* ========== BOTONES ========== */
+
+.btn-primary {
+  padding: 12px 30px;
+  background: linear-gradient(135deg, #ff69b4 0%, #ff85c1 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-primary:hover {
+  transform: scale(1.05);
+  box-shadow: 0 5px 15px rgba(255, 105, 180, 0.3);
+}
+
+.btn-large {
+  width: 100%;
+  padding: 18px;
+  font-size: 18px;
+}
+
+.btn-delete {
+  padding: 8px 16px;
+  background: #ff4d6d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-delete:hover {
+  background: #ff1744;
+}
+
+.btn-delete-small {
+  padding: 5px 10px;
+  background: #ff4d6d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-add {
+  padding: 8px 16px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-add:hover {
+  background: #45a049;
+}
+
+.btn-add:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* ========== PRODUCTOS ========== */
+
+.productos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.producto-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(255, 105, 180, 0.1);
+  transition: all 0.3s;
+}
+
+.producto-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(255, 105, 180, 0.2);
+}
+
+.producto-card h3 {
+  color: #ff69b4;
+  margin-bottom: 10px;
+}
+
+.categoria {
+  display: inline-block;
+  background: #ffe6f7;
+  color: #ff69b4;
+  padding: 5px 12px;
+  border-radius: 15px;
+  font-size: 0.85em;
+  margin-bottom: 10px;
+}
+
+.descripcion {
+  color: #666;
+  font-size: 0.9em;
+  margin-bottom: 15px;
+  min-height: 40px;
+}
+
+.precio {
+  font-size: 1.5em;
+  font-weight: bold;
+  color: #ff69b4;
+  margin-bottom: 10px;
+}
+
+.stock {
+  color: #999;
+  margin-bottom: 15px;
+}
+
+/* ========== PRODUCTOS PEQUEÑOS (PEDIDOS) ========== */
+
+.productos-grid-small {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 15px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.producto-card-small {
+  background: #ffe6f7;
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.producto-card-small h4 {
+  color: #ff69b4;
+  margin-bottom: 8px;
+  font-size: 0.95em;
+}
+
+.producto-card-small p {
+  margin-bottom: 8px;
+}
+
+.stock-small {
+  font-size: 0.85em;
+  color: #666;
+}
+
+/* ========== TABLAS ========== */
+
+.table-container {
+  background: white;
+  padding: 20px;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px rgba(255, 105, 180, 0.15);
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  background: linear-gradient(135deg, #ff69b4 0%, #ff85c1 100%);
+  color: white;
+}
+
+th {
+  padding: 15px;
+  text-align: left;
+  font-weight: bold;
+}
+
+td {
+  padding: 12px 15px;
+  border-bottom: 1px solid #ffe6f7;
+}
+
+tbody tr:hover {
+  background: #fff5fc;
+}
+
+.tabla-resumen {
+  margin-bottom: 20px;
+}
+
+.tabla-resumen input {
+  width: 60px;
+  padding: 5px;
+  border: 1px solid #ffcceb;
+  border-radius: 4px;
+  text-align: center;
+}
+
+/* ========== BADGES ========== */
+
+.badge {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 15px;
+  font-size: 0.85em;
+  font-weight: bold;
+}
+
+.badge.bronce {
+  background: #cd7f32;
+  color: white;
+}
+
+.badge.plata {
+  background: #c0c0c0;
+  color: #333;
+}
+
+.badge.oro,
+.badge.gold {
+  background: #ffd700;
+  color: #333;
+}
+
+/* ========== CLIENTES VIP ========== */
+
+.clientes-vip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.cliente-vip-card {
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(255, 215, 0, 0.3);
+  text-align: center;
+}
+
+.cliente-vip-card h4 {
+  color: #333;
+  margin-bottom: 10px;
+  font-size: 1.2em;
+}
+
+.cliente-vip-card p {
+  color: #555;
+  margin: 5px 0;
+}
+
+/* ========== PEDIDO CONTAINER ========== */
+
+.pedido-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cliente-seleccionado {
+  background: #e8f5e9;
+  padding: 20px;
+  border-radius: 10px;
+  border: 2px solid #4caf50;
+}
+
+.cliente-seleccionado h3 {
+  color: #2e7d32;
+  margin-bottom: 10px;
+}
+
+.cliente-seleccionado button {
+  margin-top: 15px;
+  padding: 10px 20px;
+  background: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* ========== TOTALES ========== */
+
+.totales {
+  background: #ffe6f7;
+  padding: 20px;
+  border-radius: 10px;
+  margin-top: 20px;
+}
+
+.totales p {
+  font-size: 1.1em;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.totales .descuento {
+  color: #4caf50;
+  font-weight: bold;
+}
+
+.totales h3 {
+  font-size: 1.8em;
+  color: #ff69b4;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 2px solid #ffcceb;
+}
+
+/* ========== RESPONSIVE ========== */
+
+@media (max-width: 768px) {
+  .app {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+  }
+
+  .main-content {
+    padding: 20px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ========== ANIMACIONES ========== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.form-card,
+.stat-card,
+.producto-card,
+.section {
+  animation: fadeIn 0.5s ease;
+}
