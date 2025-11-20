@@ -1,4 +1,4 @@
-/* frontend/src/App.css - Sistema Multi-Roles Completo */
+/* frontend/src/App.css - Sistema Multi-Roles Completo + FIX */
 
 * {
   margin: 0;
@@ -314,6 +314,53 @@ body {
   border-radius: 15px;
   box-shadow: 0 5px 20px rgba(255, 105, 180, 0.15);
   margin-bottom: 30px;
+}
+
+/* ========== NUEVOS ESTILOS PARA FIX ========== */
+
+/* Perfil Incompleto */
+.perfil-incompleto {
+  text-align: center;
+  padding: 40px;
+  background: linear-gradient(135deg, #fff3cd 0%, #fff8e1 100%);
+  border: 2px solid #ff9800;
+}
+
+.perfil-incompleto h2 {
+  color: #ff9800;
+  margin-bottom: 20px;
+  font-size: 1.8em;
+}
+
+.perfil-incompleto p {
+  font-size: 1.1em;
+  margin: 15px 0;
+  color: #666;
+  line-height: 1.6;
+}
+
+/* Loading Section */
+.loading-section {
+  text-align: center;
+  padding: 40px;
+  background: #f5f5f5;
+}
+
+.loading-section p {
+  font-size: 1.1em;
+  color: #666;
+  animation: pulse 2s infinite;
+}
+
+/* Notas en Pedidos */
+.pedido-notas {
+  font-style: italic;
+  font-size: 0.9em;
+  color: #666;
+  background: #f9f9f9;
+  padding: 8px;
+  border-radius: 5px;
+  border-left: 3px solid #ff69b4;
 }
 
 /* ========== FORMULARIOS ========== */
@@ -763,6 +810,12 @@ tbody tr:hover {
   border-radius: 12px;
   box-shadow: 0 4px 15px rgba(255, 105, 180, 0.1);
   border-left: 4px solid #ff69b4;
+  transition: all 0.3s;
+}
+
+.pedido-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(255, 105, 180, 0.2);
 }
 
 .pedido-card h3 {
@@ -773,6 +826,7 @@ tbody tr:hover {
 .pedido-card .pedido-info {
   margin-bottom: 10px;
   color: #666;
+  font-size: 0.95em;
 }
 
 .pedido-card .pedido-total {
@@ -804,12 +858,20 @@ tbody tr:hover {
   background: #fff5fc;
   border-radius: 10px;
   border-left: 4px solid #ff69b4;
+  transition: all 0.3s;
+}
+
+.perfil-item:hover {
+  transform: translateX(5px);
+  box-shadow: 0 2px 10px rgba(255, 105, 180, 0.1);
 }
 
 .perfil-item h4 {
   color: #666;
   font-size: 0.9em;
   margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .perfil-item p {
@@ -833,6 +895,12 @@ tbody tr:hover {
   border-radius: 12px;
   border: 2px solid #4caf50;
   text-align: center;
+  transition: all 0.3s;
+}
+
+.beneficio-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 5px 20px rgba(76, 175, 80, 0.3);
 }
 
 .beneficio-card.usado {
@@ -889,6 +957,14 @@ tbody tr:hover {
   }
 
   .perfil-info {
+    grid-template-columns: 1fr;
+  }
+
+  .beneficios-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .clientes-vip {
     grid-template-columns: 1fr;
   }
 }

@@ -1,4 +1,4 @@
-// frontend/src/App.js - Multi-Roles
+// frontend/src/App.js - Multi-Roles - VERSIÓN COMPLETA CON FIX
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
@@ -24,6 +24,10 @@ function App() {
   const [miPerfil, setMiPerfil] = useState(null);
   const [beneficiosDisponibles, setBeneficiosDisponibles] = useState([]);
   
+  // NUEVOS ESTADOS PARA FIX
+  const [tieneCliente, setTieneCliente] = useState(false);
+  const [cargandoPerfil, setCargandoPerfil] = useState(false);
+  
   // Estados para formularios
   const [formProducto, setFormProducto] = useState({
     nombre: '', descripcion: '', precio: '', stock: '', categoria: ''
@@ -46,6 +50,23 @@ function App() {
   const tienePermiso = (modulo, accion) => {
     const permiso = permisos.find(p => p.modulo === modulo);
     return permiso ? permiso[accion] : false;
+  };
+
+  // NUEVA FUNCIÓN: Verificar si el usuario tiene perfil de cliente
+  const verificarPerfilCliente = async () => {
+    if (usuario?.rol !== 'cliente') return;
+    
+    try {
+      const response = await axios.get(`${API_URL}/verificar-cliente/${usuario.id}`);
+      setTieneCliente(response.data.tiene_cliente);
+      
+      if (!response.data.tiene_cliente) {
+        console.warn('Usuario sin perfil de cliente asociado');
+      }
+    } catch (error) {
+      console.error('Error al verificar cliente:', error);
+      setTieneCliente(false);
+    }
   };
 
   // Login
@@ -113,6 +134,7 @@ function App() {
     setIsLoggedIn(false);
     setUsuario(null);
     setPermisos([]);
+    setTieneCliente(false);
   };
 
   // Cargar todos los datos
@@ -165,11 +187,73 @@ function App() {
     }
   };
 
+  // MEJORADA: Cargar mis pedidos con validación
+  const cargarMisPedidos = async () => {
+    if (!tieneCliente) {
+      setMisPedidos([]);
+      return;
+    }
+    
+    setCargandoPerfil(true);
+    try {
+      const response = await axios.get(`${API_URL}/pedidos/cliente/${usuario.id}`);
+      setMisPedidos(response.data);
+    } catch (error) {
+      console.error('Error al cargar pedidos:', error);
+      if (error.response?.status === 404) {
+        setMisPedidos([]);
+      }
+    } finally {
+      setCargandoPerfil(false);
+    }
+  };
+
+  // MEJORADA: Cargar mi perfil con validación
+  const cargarMiPerfil = async () => {
+    if (!tieneCliente) {
+      setMiPerfil(null);
+      return;
+    }
+    
+    setCargandoPerfil(true);
+    try {
+      const response = await axios.get(`${API_URL}/clientes/usuario/${usuario.id}`);
+      setMiPerfil(response.data);
+    } catch (error) {
+      console.error('Error al cargar perfil:', error);
+      if (error.response?.status === 404) {
+        setMiPerfil(null);
+      }
+    } finally {
+      setCargandoPerfil(false);
+    }
+  };
+
+  // MEJORADA: Cargar beneficios con validación
+  const cargarBeneficios = async () => {
+    if (!tieneCliente) {
+      setBeneficiosDisponibles([]);
+      return;
+    }
+    
+    setCargandoPerfil(true);
+    try {
+      const response = await axios.get(`${API_URL}/beneficios/cliente/${usuario.id}`);
+      setBeneficiosDisponibles(response.data);
+    } catch (error) {
+      console.error('Error al cargar beneficios:', error);
+      if (error.response?.status === 404) {
+        setBeneficiosDisponibles([]);
+      }
+    } finally {
+      setCargandoPerfil(false);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
       configurarAxios(token);
-      // Intentar validar el token haciendo una petición
       axios.get(`${API_URL}/estadisticas`)
         .then(() => setIsLoggedIn(true))
         .catch(() => {
@@ -184,6 +268,13 @@ function App() {
       cargarDatos();
     }
   }, [isLoggedIn, permisos]);
+
+  // NUEVO useEffect: Verificar perfil de cliente al iniciar sesión
+  useEffect(() => {
+    if (isLoggedIn && usuario?.rol === 'cliente') {
+      verificarPerfilCliente();
+    }
+  }, [isLoggedIn, usuario]);
 
   // ========== PRODUCTOS ==========
   
@@ -371,7 +462,7 @@ function App() {
                 <input type="email" name="correo" placeholder="Correo electrónico" required />
                 <input type="password" name="contrasena" placeholder="Contraseña (mínimo 6 caracteres)" required minLength="6" />
                 <input type="password" name="confirmarContrasena" placeholder="Confirmar contraseña" required minLength="6" />
-                                  <select name="rol" required>
+                <select name="rol" required>
                   <option value="">Seleccionar rol</option>
                   <option value="cliente">Cliente</option>
                   <option value="empleado">Empleado</option>
@@ -981,189 +1072,225 @@ function App() {
           </div>
         )}
 
-        {/* MIS PEDIDOS - Vista Cliente */}
+        {/* MIS PEDIDOS - Vista Cliente CON VALIDACIÓN */}
         {vistaActual === 'mis-pedidos' && usuario?.rol === 'cliente' && (
           <div>
             <h1>📦 Mis Pedidos</h1>
-            <button onClick={async () => {
-              try {
-                const response = await axios.get(`${API_URL}/pedidos/cliente/${usuario.id}`);
-                setMisPedidos(response.data);
-              } catch (error) {
-                alert('Error al cargar pedidos');
-              }
-            }} className="btn-primary" style={{marginBottom: '20px'}}>
-              Actualizar Pedidos
-            </button>
-
-            {misPedidos.length === 0 ? (
-              <div className="section">
-                <p style={{textAlign: 'center', color: '#666'}}>
-                  No tienes pedidos aún. ¡Explora nuestro catálogo!
-                </p>
+            
+            {!tieneCliente ? (
+              <div className="section perfil-incompleto">
+                <h2>⚠️ Perfil Incompleto</h2>
+                <p>Tu cuenta de usuario no tiene un perfil de cliente asociado.</p>
+                <p>Por favor contacta a un empleado o administrador para que complete tu registro.</p>
               </div>
             ) : (
-              <div className="mis-pedidos-grid">
-                {misPedidos.map(pedido => (
-                  <div key={pedido.id_pedido} className="pedido-card">
-                    <h3>Pedido #{pedido.id_pedido}</h3>
-                    <p className="pedido-info">
-                      📅 {new Date(pedido.fecha_pedido).toLocaleDateString()}
-                    </p>
-                    <p className="pedido-info">
-                      Estado: <span className="badge">{pedido.estado}</span>
-                    </p>
-                    {pedido.descuento > 0 && (
-                      <p className="pedido-info descuento">
-                        💰 Descuento aplicado: ${pedido.descuento.toLocaleString()}
-                      </p>
-                    )}
-                    <p className="pedido-total">${pedido.total_final?.toLocaleString()}</p>
+              <>
+                <button 
+                  onClick={cargarMisPedidos} 
+                  className="btn-primary" 
+                  style={{marginBottom: '20px'}}
+                  disabled={cargandoPerfil}
+                >
+                  {cargandoPerfil ? 'Cargando...' : 'Actualizar Pedidos'}
+                </button>
+
+                {cargandoPerfil ? (
+                  <div className="section loading-section">
+                    <p>Cargando pedidos...</p>
                   </div>
-                ))}
-              </div>
+                ) : misPedidos.length === 0 ? (
+                  <div className="section">
+                    <p style={{textAlign: 'center', color: '#666'}}>
+                      No tienes pedidos aún. ¡Explora nuestro catálogo!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mis-pedidos-grid">
+                    {misPedidos.map(pedido => (
+                      <div key={pedido.id_pedido} className="pedido-card">
+                        <h3>Pedido #{pedido.id_pedido}</h3>
+                        <p className="pedido-info">
+                          📅 {new Date(pedido.fecha_pedido).toLocaleDateString('es-ES', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                        <p className="pedido-info">
+                          Estado: <span className="badge">{pedido.estado}</span>
+                        </p>
+                        <p className="pedido-info">
+                          Tu nivel: <span className={`badge ${pedido.nivel_fidelidad?.toLowerCase()}`}>
+                            {pedido.nivel_fidelidad}
+                          </span>
+                        </p>
+                        {pedido.descuento > 0 && (
+                          <p className="pedido-info descuento">
+                            💰 Descuento aplicado: ${pedido.descuento.toLocaleString()}
+                          </p>
+                        )}
+                        {pedido.notas && (
+                          <p className="pedido-info pedido-notas">
+                            📝 {pedido.notas}
+                          </p>
+                        )}
+                        <p className="pedido-total">${pedido.total_final?.toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {/* MI PERFIL - Vista Cliente */}
+        {/* MI PERFIL - Vista Cliente CON VALIDACIÓN */}
         {vistaActual === 'mi-perfil' && usuario?.rol === 'cliente' && (
           <div>
             <h1>👤 Mi Perfil</h1>
-            <button onClick={async () => {
-              try {
-                const response = await axios.get(`${API_URL}/clientes/usuario/${usuario.id}`);
-                setMiPerfil(response.data);
-              } catch (error) {
-                alert('Error al cargar perfil');
-              }
-            }} className="btn-primary" style={{marginBottom: '20px'}}>
-              Actualizar Información
-            </button>
-
-            {miPerfil && (
-              <div className="perfil-card">
-                <h2>Información Personal</h2>
-                <div className="perfil-info">
-                  <div className="perfil-item">
-                    <h4>Nombre</h4>
-                    <p>{miPerfil.nombre}</p>
-                  </div>
-                  <div className="perfil-item">
-                    <h4>Teléfono</h4>
-                    <p>{miPerfil.telefono}</p>
-                  </div>
-                  <div className="perfil-item">
-                    <h4>Correo</h4>
-                    <p>{miPerfil.correo || 'No registrado'}</p>
-                  </div>
-                  <div className="perfil-item">
-                    <h4>Nivel de Fidelidad</h4>
-                    <p>
-                      <span className={`badge ${miPerfil.nivel_fidelidad?.toLowerCase()}`}>
-                        {miPerfil.nivel_fidelidad}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="perfil-item">
-                    <h4>Descuento Actual</h4>
-                    <p>{miPerfil.descuento_actual}%</p>
-                  </div>
-                  <div className="perfil-item">
-                    <h4>Total de Compras</h4>
-                    <p>{miPerfil.total_compras}</p>
-                  </div>
-                  <div className="perfil-item">
-                    <h4>Monto Total Gastado</h4>
-                    <p>${miPerfil.monto_total?.toLocaleString()}</p>
-                  </div>
-                  <div className="perfil-item">
-                    <h4>Miembro desde</h4>
-                    <p>{new Date(miPerfil.fecha_registro).toLocaleDateString()}</p>
-                  </div>
-                </div>
+            
+            {!tieneCliente ? (
+              <div className="section perfil-incompleto">
+                <h2>⚠️ Perfil Incompleto</h2>
+                <p>Tu cuenta de usuario no tiene un perfil de cliente asociado.</p>
+                <p>Por favor contacta a un empleado o administrador para que complete tu registro.</p>
               </div>
-            )}
+            ) : (
+              <>
+                <button 
+                  onClick={cargarMiPerfil} 
+                  className="btn-primary" 
+                  style={{marginBottom: '20px'}}
+                  disabled={cargandoPerfil}
+                >
+                  {cargandoPerfil ? 'Cargando...' : 'Actualizar Información'}
+                </button>
 
-            <div className="section" style={{marginTop: '30px'}}>
-              <h2>Progreso de Fidelidad</h2>
-              <p style={{marginBottom: '15px', color: '#666'}}>
-                Sigue comprando para alcanzar el siguiente nivel y obtener más beneficios
-              </p>
-              {miPerfil && (
-                <div>
-                  {miPerfil.nivel_fidelidad === 'Bronce' && (
-                    <p>
-                      🥈 Te faltan <strong>{5 - miPerfil.total_compras}</strong> compras para nivel Plata (5% descuento)
+                {cargandoPerfil ? (
+                  <div className="section loading-section">
+                    <p>Cargando perfil...</p>
+                  </div>
+                ) : miPerfil ? (
+                  <>
+                    <div className="perfil-card">
+                      <h2>Información Personal</h2>
+                      <div className="perfil-info">
+                        <div className="perfil-item">
+                          <h4>Nombre</h4>
+                          <p>{miPerfil.nombre}</p>
+                        </div>
+                        <div className="perfil-item">
+                          <h4>Teléfono</h4>
+                          <p>{miPerfil.telefono}</p>
+                        </div>
+                        <div className="perfil-item">
+                          <h4>Correo</h4>
+                          <p>{miPerfil.correo || 'No registrado'}</p>
+                        </div>
+                        <div className="perfil-item">
+                          <h4>Nivel de Fidelidad</h4>
+                          <p>
+                            <span className={`badge ${miPerfil.nivel_fidelidad?.toLowerCase()}`}>
+                              {miPerfil.nivel_fidelidad}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="perfil-item">
+                          <h4>Descuento Actual</h4>
+                          <p>{miPerfil.descuento_actual}%</p>
+                        </div>
+                        <div className="perfil-item">
+                          <h4>Total de Compras</h4>
+                          <p>{miPerfil.total_compras}</p>
+                        </div>
+                        <div className="perfil-item">
+                          <h4>Monto Total Gastado</h4>
+                          <p>${miPerfil.monto_total?.toLocaleString()}</p>
+                        </div>
+                        <div className="perfil-item">
+                          <h4>Miembro desde</h4>
+                          <p>{new Date(miPerfil.fecha_registro).toLocaleDateString('es-ES', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          })}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="section" style={{marginTop: '30px'}}>
+                      <h2>Progreso de Fidelidad</h2>
+                      <p style={{marginBottom: '15px', color: '#666'}}>
+                        Sigue comprando para alcanzar el siguiente nivel y obtener más beneficios
+                      </p>
+                      {miPerfil.nivel_fidelidad === 'Bronce' && (
+                        <p style={{fontSize: '1.1em'}}>
+                          🥈 Te faltan <strong>{5 - miPerfil.total_compras}</strong> compras para nivel Plata (5% descuento)
+                        </p>
+                      )}
+                      {miPerfil.nivel_fidelidad === 'Plata' && (
+                        <p style={{fontSize: '1.1em'}}>
+                          🥇 Te faltan <strong>{10 - miPerfil.total_compras}</strong> compras para nivel Oro (10% descuento)
+                        </p>
+                      )}
+                      {miPerfil.nivel_fidelidad === 'Oro' && (
+                        <p style={{fontSize: '1.1em', color: '#4caf50'}}>
+                          ⭐ ¡Felicitaciones! Has alcanzado el nivel máximo con 10% de descuento permanente
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="section">
+                    <p style={{textAlign: 'center', color: '#666'}}>
+                      No se pudo cargar tu perfil. Intenta nuevamente.
                     </p>
-                  )}
-                  {miPerfil.nivel_fidelidad === 'Plata' && (
-                    <p>
-                      🥇 Te faltan <strong>{10 - miPerfil.total_compras}</strong> compras para nivel Oro (10% descuento)
-                    </p>
-                  )}
-                  {miPerfil.nivel_fidelidad === 'Oro' && (
-                    <p>
-                      ⭐ ¡Felicitaciones! Has alcanzado el nivel máximo con 10% de descuento
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
-        {/* BENEFICIOS - Vista Cliente */}
+        {/* BENEFICIOS - Vista Cliente CON VALIDACIÓN */}
         {vistaActual === 'beneficios' && usuario?.rol === 'cliente' && (
           <div>
             <h1>🎁 Mis Beneficios</h1>
-            <button onClick={async () => {
-              try {
-                const response = await axios.get(`${API_URL}/beneficios/cliente/${usuario.id}`);
-                setBeneficiosDisponibles(response.data);
-              } catch (error) {
-                alert('Error al cargar beneficios');
-              }
-            }} className="btn-primary" style={{marginBottom: '20px'}}>
-              Actualizar Beneficios
-            </button>
-
-            {beneficiosDisponibles.length === 0 ? (
-              <div className="section">
-                <p style={{textAlign: 'center', color: '#666'}}>
-                  No tienes beneficios disponibles en este momento
-                </p>
+            
+            {!tieneCliente ? (
+              <div className="section perfil-incompleto">
+                <h2>⚠️ Perfil Incompleto</h2>
+                <p>Tu cuenta de usuario no tiene un perfil de cliente asociado.</p>
+                <p>Por favor contacta a un empleado o administrador para que complete tu registro.</p>
               </div>
             ) : (
-              <div>
-                <div className="beneficios-grid">
-                  {beneficiosDisponibles.filter(b => !b.usado).map(beneficio => (
-                    <div key={beneficio.id_beneficio} className="beneficio-card">
-                      <div className="beneficio-icono">
-                        {beneficio.tipo_beneficio === 'cumpleanos' && '🎂'}
-                        {beneficio.tipo_beneficio === 'caja_galletas' && '🍪'}
-                      </div>
-                      <h4>
-                        {beneficio.tipo_beneficio === 'cumpleanos' && '15% Descuento Cumpleaños'}
-                        {beneficio.tipo_beneficio === 'caja_galletas' && 'Caja de Galletas Gratis'}
-                      </h4>
-                      <p>📅 Disponible desde: {new Date(beneficio.fecha_aplicacion).toLocaleDateString()}</p>
-                      <p style={{marginTop: '10px', fontWeight: 'bold', color: '#2e7d32'}}>
-                        ✅ Beneficio Activo
-                      </p>
-                      <p style={{fontSize: '0.9em', marginTop: '10px'}}>
-                        {beneficio.notas}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+              <>
+                <button 
+                  onClick={cargarBeneficios} 
+                  className="btn-primary" 
+                  style={{marginBottom: '20px'}}
+                  disabled={cargandoPerfil}
+                >
+                  {cargandoPerfil ? 'Cargando...' : 'Actualizar Beneficios'}
+                </button>
 
-                {beneficiosDisponibles.some(b => b.usado) && (
-                  <div style={{marginTop: '40px'}}>
-                    <h2>Beneficios Usados</h2>
+                {cargandoPerfil ? (
+                  <div className="section loading-section">
+                    <p>Cargando beneficios...</p>
+                  </div>
+                ) : beneficiosDisponibles.length === 0 ? (
+                  <div className="section">
+                    <p style={{textAlign: 'center', color: '#666'}}>
+                      No tienes beneficios disponibles en este momento
+                    </p>
+                  </div>
+                ) : (
+                  <div>
                     <div className="beneficios-grid">
-                      {beneficiosDisponibles.filter(b => b.usado).map(beneficio => (
-                        <div key={beneficio.id_beneficio} className="beneficio-card usado">
+                      {beneficiosDisponibles.filter(b => !b.usado).map(beneficio => (
+                        <div key={beneficio.id_beneficio} className="beneficio-card">
                           <div className="beneficio-icono">
                             {beneficio.tipo_beneficio === 'cumpleanos' && '🎂'}
                             {beneficio.tipo_beneficio === 'caja_galletas' && '🍪'}
@@ -1172,22 +1299,52 @@ function App() {
                             {beneficio.tipo_beneficio === 'cumpleanos' && '15% Descuento Cumpleaños'}
                             {beneficio.tipo_beneficio === 'caja_galletas' && 'Caja de Galletas Gratis'}
                           </h4>
-                          <p>✓ Usado el: {new Date(beneficio.fecha_uso).toLocaleDateString()}</p>
+                          <p>📅 Disponible desde: {new Date(beneficio.fecha_aplicacion).toLocaleDateString('es-ES')}</p>
+                          <p style={{marginTop: '10px', fontWeight: 'bold', color: '#2e7d32'}}>
+                            ✅ Beneficio Activo
+                          </p>
+                          {beneficio.notas && (
+                            <p style={{fontSize: '0.9em', marginTop: '10px'}}>
+                              {beneficio.notas}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>
+
+                    {beneficiosDisponibles.some(b => b.usado) && (
+                      <div style={{marginTop: '40px'}}>
+                        <h2>Beneficios Usados</h2>
+                        <div className="beneficios-grid">
+                          {beneficiosDisponibles.filter(b => b.usado).map(beneficio => (
+                            <div key={beneficio.id_beneficio} className="beneficio-card usado">
+                              <div className="beneficio-icono">
+                                {beneficio.tipo_beneficio === 'cumpleanos' && '🎂'}
+                                {beneficio.tipo_beneficio === 'caja_galletas' && '🍪'}
+                              </div>
+                              <h4>
+                                {beneficio.tipo_beneficio === 'cumpleanos' && '15% Descuento Cumpleaños'}
+                                {beneficio.tipo_beneficio === 'caja_galletas' && 'Caja de Galletas Gratis'}
+                              </h4>
+                              <p>✓ Usado el: {new Date(beneficio.fecha_uso).toLocaleDateString('es-ES')}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            <div className="section" style={{marginTop: '30px'}}>
-              <h2>¿Cómo obtener más beneficios?</h2>
-              <ul style={{lineHeight: '2', color: '#666', paddingLeft: '20px'}}>
-                <li>🍪 Por cada 10 compras, recibe una caja de galletas gratis</li>
-                <li>⭐ Alcanza nivel Oro y obtén 10% de descuento permanente</li>
-              </ul>
-            </div>
+                <div className="section" style={{marginTop: '30px'}}>
+                  <h2>¿Cómo obtener más beneficios?</h2>
+                  <ul style={{lineHeight: '2', color: '#666', paddingLeft: '20px'}}>
+                    <li>🍪 Por cada 10 compras, recibe una caja de galletas gratis</li>
+                    <li>⭐ Alcanza nivel Oro y obtén 10% de descuento permanente</li>
+                    <li>🎂 Recibe un descuento especial del 15% en tu mes de cumpleaños</li>
+                  </ul>
+                </div>
+              </>
+            )}
           </div>
         )}
 

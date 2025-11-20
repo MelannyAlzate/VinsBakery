@@ -1,4 +1,4 @@
-// backend/server.js - Multi-Roles
+// backend/server.js - Multi-Roles COMPLETO CON COMPRAS PARA CLIENTES
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 5000;
 const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
   host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'vins_bakery',
+  database: process.env.DB_NAME || 'VinsBakery',
   password: process.env.DB_PASSWORD || 'mel1406',
   port: process.env.DB_PORT || 5432,
 });
@@ -40,7 +40,7 @@ const verificarToken = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret_key_vinsbakery_2024');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'vins_bakery_secret_2025');
     req.usuario = decoded;
     next();
   } catch (error) {
@@ -48,11 +48,16 @@ const verificarToken = (req, res, next) => {
   }
 };
 
-// Middleware para verificar permisos
+// Middleware para verificar permisos (permite clientes hacer pedidos)
 const verificarPermiso = (modulo, accion) => {
   return async (req, res, next) => {
     try {
       const { rol } = req.usuario;
+      
+      // Los clientes pueden crear sus propios pedidos
+      if (rol === 'cliente' && modulo === 'pedidos' && accion === 'puede_crear') {
+        return next();
+      }
       
       const result = await pool.query(
         `SELECT ${accion} FROM permisos_rol WHERE rol = $1 AND modulo = $2`,
@@ -117,7 +122,7 @@ app.post('/api/login', async (req, res) => {
 
     const token = jwt.sign(
       { id: usuario.id_usuario, correo: usuario.correo, rol: usuario.rol },
-      process.env.JWT_SECRET || 'secret_key_vinsbakery_2024',
+      process.env.JWT_SECRET || 'vins_bakery_secret_2025',
       { expiresIn: '8h' }
     );
 
@@ -144,39 +149,59 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/register', async (req, res) => {
+  const client = await pool.connect();
+  
   try {
-    const { nombre, correo, contrasena, rol } = req.body;
+    await client.query('BEGIN');
     
-    const usuarioExistente = await pool.query(
+    const { nombre, correo, contrasena, rol, telefono } = req.body;
+    
+    const usuarioExistente = await client.query(
       'SELECT * FROM usuario WHERE correo = $1',
       [correo]
     );
 
     if (usuarioExistente.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'El correo ya está registrado' });
     }
 
     const salt = await bcrypt.genSalt(10);
     const contrasenaEncriptada = await bcrypt.hash(contrasena, salt);
 
-    const result = await pool.query(
+    const userResult = await client.query(
       'INSERT INTO usuario (nombre, correo, contrasena, rol) VALUES ($1, $2, $3, $4) RETURNING id_usuario, nombre, correo, rol',
-      [nombre, correo, contrasenaEncriptada, rol || 'empleado']
+      [nombre, correo, contrasenaEncriptada, rol || 'cliente']
     );
+
+    const nuevoUsuario = userResult.rows[0];
+
+    // Si es cliente, crear registro en tabla cliente
+    if (nuevoUsuario.rol === 'cliente') {
+      await client.query(
+        'INSERT INTO cliente (nombre, telefono, correo, id_usuario) VALUES ($1, $2, $3, $4)',
+        [nombre, telefono || '', correo, nuevoUsuario.id_usuario]
+      );
+    }
+
+    await client.query('COMMIT');
 
     res.status(201).json({
       mensaje: 'Usuario registrado exitosamente',
-      usuario: result.rows[0]
+      usuario: nuevoUsuario
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error en registro:', error);
     res.status(500).json({ error: 'Error al registrar usuario' });
+  } finally {
+    client.release();
   }
 });
 
-// ========== PRODUCTOS ==========
+// ========== PRODUCTOS (Públicos para clientes) ==========
 
-app.get('/api/productos', verificarToken, verificarPermiso('productos', 'puede_ver'), async (req, res) => {
+app.get('/api/productos', verificarToken, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM producto WHERE activo = true ORDER BY nombre'
@@ -293,6 +318,7 @@ app.post('/api/clientes', verificarToken, verificarPermiso('clientes', 'puede_cr
 
 // ========== PEDIDOS ==========
 
+// Ver todos los pedidos (Admin/Empleado)
 app.get('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_ver'), async (req, res) => {
   try {
     const result = await pool.query(`
@@ -308,7 +334,8 @@ app.get('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_ver')
   }
 });
 
-app.post('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_crear'), async (req, res) => {
+// Crear pedido (Admin, Empleado o Cliente)
+app.post('/api/pedidos', verificarToken, async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -316,34 +343,70 @@ app.post('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_crea
     
     const { id_cliente, productos, notas } = req.body;
     
-    const clienteResult = await client.query(
+    // Si es un cliente, verificar que esté creando pedido para sí mismo
+    if (req.usuario.rol === 'cliente') {
+      const clienteResult = await client.query(
+        'SELECT id_cliente FROM cliente WHERE id_usuario = $1',
+        [req.usuario.id]
+      );
+      
+      if (clienteResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Perfil de cliente no encontrado' });
+      }
+      
+      if (clienteResult.rows[0].id_cliente !== id_cliente) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Solo puedes crear pedidos para ti mismo' });
+      }
+    }
+    
+    // Obtener descuento del cliente
+    const clienteData = await client.query(
       'SELECT descuento_actual FROM cliente WHERE id_cliente = $1',
       [id_cliente]
     );
     
-    const descuentoPorcentaje = clienteResult.rows[0].descuento_actual;
+    const descuentoPorcentaje = clienteData.rows[0].descuento_actual;
     
+    // Calcular totales
     let total = 0;
     for (const prod of productos) {
+      // Verificar stock
+      const stockCheck = await client.query(
+        'SELECT stock FROM producto WHERE id_producto = $1',
+        [prod.id_producto]
+      );
+      
+      if (stockCheck.rows[0].stock < prod.cantidad) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ 
+          error: `Stock insuficiente para ${prod.nombre}. Disponible: ${stockCheck.rows[0].stock}` 
+        });
+      }
+      
       total += prod.precio_unitario * prod.cantidad;
     }
     
     const descuento = (total * descuentoPorcentaje) / 100;
     const total_final = total - descuento;
     
+    // Crear pedido
     const pedidoResult = await client.query(
-      'INSERT INTO pedido (id_cliente, total, descuento, total_final, notas) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [id_cliente, total, descuento, total_final, notas]
+      'INSERT INTO pedido (id_cliente, total, descuento, total_final, notas, estado) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [id_cliente, total, descuento, total_final, notas, 'pendiente']
     );
     
     const id_pedido = pedidoResult.rows[0].id_pedido;
     
+    // Agregar productos al pedido
     for (const prod of productos) {
       await client.query(
         'INSERT INTO detalle_pedido (id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
         [id_pedido, prod.id_producto, prod.nombre, prod.cantidad, prod.precio_unitario, prod.cantidad * prod.precio_unitario]
       );
       
+      // Actualizar stock
       await client.query(
         'UPDATE producto SET stock = stock - $1 WHERE id_producto = $2',
         [prod.cantidad, prod.id_producto]
@@ -357,9 +420,45 @@ app.post('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_crea
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error al crear pedido:', error);
-    res.status(500).json({ error: 'Error al crear pedido' });
+    res.status(500).json({ error: 'Error al crear pedido: ' + error.message });
   } finally {
     client.release();
+  }
+});
+
+// Actualizar estado del pedido (Admin/Empleado)
+app.put('/api/pedidos/:id/estado', verificarToken, verificarPermiso('pedidos', 'puede_editar'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body;
+    
+    const result = await pool.query(
+      'UPDATE pedido SET estado = $1 WHERE id_pedido = $2 RETURNING *',
+      [estado, id]
+    );
+    
+    await registrarActividad(req, 'actualizar_estado_pedido', 'pedidos', `Pedido #${id} -> ${estado}`);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar pedido:', error);
+    res.status(500).json({ error: 'Error al actualizar pedido' });
+  }
+});
+
+// Ver detalle de un pedido
+app.get('/api/pedidos/:id/detalle', verificarToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query(
+      'SELECT * FROM detalle_pedido WHERE id_pedido = $1',
+      [id]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener detalle:', error);
+    res.status(500).json({ error: 'Error al obtener detalle del pedido' });
   }
 });
 
@@ -466,28 +565,6 @@ app.get('/api/estadisticas', verificarToken, async (req, res) => {
   }
 });
 
-// ========== REPORTES ==========
-
-app.get('/api/reportes/ventas', verificarToken, verificarPermiso('reportes', 'puede_ver'), async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM vista_reporte_ventas LIMIT 50');
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error al obtener reporte:', error);
-    res.status(500).json({ error: 'Error al obtener reporte' });
-  }
-});
-
-app.get('/api/reportes/productos-vendidos', verificarToken, verificarPermiso('reportes', 'puede_ver'), async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM vista_productos_mas_vendidos LIMIT 20');
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error al obtener reporte:', error);
-    res.status(500).json({ error: 'Error al obtener reporte' });
-  }
-});
-
 // ========== ENDPOINTS PARA CLIENTES ==========
 
 // Obtener pedidos de un cliente específico
@@ -591,10 +668,11 @@ app.get('/api/beneficios/cliente/:id_usuario', verificarToken, async (req, res) 
 // Ruta principal
 app.get('/', (req, res) => {
   res.json({ 
-    mensaje: '🧁 API Vins Bakery - Multi-Roles',
-    version: '2.0',
+    mensaje: '🧁 API Vins Bakery - Multi-Roles con Compras',
+    version: '3.0',
     estado: 'Activo',
-    roles: ['administrador', 'empleado', 'cliente', 'sistema']
+    roles: ['administrador', 'empleado', 'cliente', 'sistema'],
+    features: ['Clientes pueden hacer pedidos', 'Fidelización automática', 'Gestión de stock']
   });
 });
 
