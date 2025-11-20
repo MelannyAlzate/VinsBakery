@@ -1,4 +1,4 @@
-/* frontend/src/App.css */
+/* frontend/src/App.css - Sistema Multi-Roles Completo */
 
 * {
   margin: 0;
@@ -49,7 +49,8 @@ body {
   gap: 15px;
 }
 
-.login-box input {
+.login-box input,
+.login-box select {
   padding: 15px;
   border: 2px solid #ffb3d9;
   border-radius: 10px;
@@ -57,7 +58,8 @@ body {
   transition: all 0.3s;
 }
 
-.login-box input:focus {
+.login-box input:focus,
+.login-box select:focus {
   outline: none;
   border-color: #ff69b4;
   box-shadow: 0 0 10px rgba(255, 105, 180, 0.3);
@@ -373,6 +375,12 @@ textarea {
   box-shadow: 0 5px 15px rgba(255, 105, 180, 0.3);
 }
 
+.btn-primary:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btn-large {
   width: 100%;
   padding: 18px;
@@ -583,6 +591,42 @@ tbody tr:hover {
   color: #333;
 }
 
+.badge.administrador {
+  background: linear-gradient(135deg, #9c27b0, #673ab7);
+  color: white;
+}
+
+.badge.empleado {
+  background: linear-gradient(135deg, #2196f3, #03a9f4);
+  color: white;
+}
+
+.badge.cliente {
+  background: linear-gradient(135deg, #4caf50, #66bb6a);
+  color: white;
+}
+
+.badge.sistema {
+  background: linear-gradient(135deg, #607d8b, #455a64);
+  color: white;
+}
+
+.badge.agotado {
+  background: #ff1744;
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+.badge.bajo {
+  background: #ff9800;
+  color: white;
+}
+
+.badge.critico {
+  background: #ff5722;
+  color: white;
+}
+
 /* ========== CLIENTES VIP ========== */
 
 .clientes-vip {
@@ -669,6 +713,150 @@ tbody tr:hover {
   border-top: 2px solid #ffcceb;
 }
 
+/* ========== ALERTAS DE STOCK ========== */
+
+.alerta-critica {
+  background: #ffebee !important;
+  border-left: 4px solid #ff1744;
+}
+
+.stat-card.alerta {
+  background: linear-gradient(135deg, #fff3cd 0%, #fff8e1 100%);
+  border-left: 4px solid #ff9800;
+}
+
+.stat-card.alerta .stat-number {
+  color: #ff6f00;
+}
+
+/* ========== PERMISOS DENEGADOS ========== */
+
+.permiso-denegado {
+  background: white;
+  padding: 40px;
+  border-radius: 15px;
+  text-align: center;
+  box-shadow: 0 5px 20px rgba(255, 105, 180, 0.15);
+}
+
+.permiso-denegado h2 {
+  color: #ff69b4;
+  margin-bottom: 20px;
+}
+
+.permiso-denegado p {
+  color: #666;
+  font-size: 1.1em;
+}
+
+/* ========== MIS PEDIDOS (CLIENTE) ========== */
+
+.mis-pedidos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.pedido-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(255, 105, 180, 0.1);
+  border-left: 4px solid #ff69b4;
+}
+
+.pedido-card h3 {
+  color: #ff69b4;
+  margin-bottom: 15px;
+}
+
+.pedido-card .pedido-info {
+  margin-bottom: 10px;
+  color: #666;
+}
+
+.pedido-card .pedido-total {
+  font-size: 1.5em;
+  font-weight: bold;
+  color: #ff69b4;
+  margin-top: 15px;
+}
+
+/* ========== PERFIL CLIENTE ========== */
+
+.perfil-card {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px rgba(255, 105, 180, 0.15);
+  margin-bottom: 30px;
+}
+
+.perfil-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.perfil-item {
+  padding: 15px;
+  background: #fff5fc;
+  border-radius: 10px;
+  border-left: 4px solid #ff69b4;
+}
+
+.perfil-item h4 {
+  color: #666;
+  font-size: 0.9em;
+  margin-bottom: 5px;
+}
+
+.perfil-item p {
+  color: #333;
+  font-size: 1.2em;
+  font-weight: bold;
+}
+
+/* ========== BENEFICIOS CLIENTE ========== */
+
+.beneficios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.beneficio-card {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  padding: 20px;
+  border-radius: 12px;
+  border: 2px solid #4caf50;
+  text-align: center;
+}
+
+.beneficio-card.usado {
+  background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+  border-color: #9e9e9e;
+  opacity: 0.7;
+}
+
+.beneficio-card h4 {
+  color: #2e7d32;
+  margin-bottom: 10px;
+  font-size: 1.2em;
+}
+
+.beneficio-card p {
+  color: #555;
+  margin: 5px 0;
+}
+
+.beneficio-icono {
+  font-size: 3em;
+  margin-bottom: 10px;
+}
+
 /* ========== RESPONSIVE ========== */
 
 @media (max-width: 768px) {
@@ -691,6 +879,18 @@ tbody tr:hover {
   .form-grid {
     grid-template-columns: 1fr;
   }
+
+  .productos-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mis-pedidos-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .perfil-info {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ========== ANIMACIONES ========== */
@@ -706,9 +906,41 @@ tbody tr:hover {
   }
 }
 
+@keyframes pulse {
+  0%, 100% { 
+    opacity: 1; 
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.7;
+    transform: scale(0.98);
+  }
+}
+
 .form-card,
 .stat-card,
 .producto-card,
-.section {
+.section,
+.pedido-card,
+.perfil-card {
   animation: fadeIn 0.5s ease;
+}
+
+/* ========== SCROLLBAR PERSONALIZADO ========== */
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #ffe6f7;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ff69b4;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ff4d9d;
 }

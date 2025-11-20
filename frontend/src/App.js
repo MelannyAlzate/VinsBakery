@@ -1,4 +1,4 @@
-// frontend/src/App.js
+// frontend/src/App.js - Multi-Roles
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
@@ -8,6 +8,7 @@ const API_URL = 'http://localhost:5000/api';
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [usuario, setUsuario] = useState(null);
+  const [permisos, setPermisos] = useState([]);
   const [vistaActual, setVistaActual] = useState('dashboard');
   const [mostrarRegistro, setMostrarRegistro] = useState(false);
   
@@ -16,6 +17,12 @@ function App() {
   const [clientes, setClientes] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [estadisticas, setEstadisticas] = useState({});
+  const [alertasStock, setAlertasStock] = useState([]);
+  const [logActividades, setLogActividades] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
+  const [misPedidos, setMisPedidos] = useState([]);
+  const [miPerfil, setMiPerfil] = useState(null);
+  const [beneficiosDisponibles, setBeneficiosDisponibles] = useState([]);
   
   // Estados para formularios
   const [formProducto, setFormProducto] = useState({
@@ -30,6 +37,17 @@ function App() {
     notas: ''
   });
 
+  // Configurar axios con token
+  const configurarAxios = (token) => {
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  };
+
+  // Verificar permiso
+  const tienePermiso = (modulo, accion) => {
+    const permiso = permisos.find(p => p.modulo === modulo);
+    return permiso ? permiso[accion] : false;
+  };
+
   // Login
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -38,9 +56,15 @@ function App() {
 
     try {
       const response = await axios.post(`${API_URL}/login`, { correo, contrasena });
-      localStorage.setItem('token', response.data.token);
-      setUsuario(response.data.usuario);
+      const { token, usuario: usuarioData, permisos: permisosData } = response.data;
+      
+      localStorage.setItem('token', token);
+      configurarAxios(token);
+      
+      setUsuario(usuarioData);
+      setPermisos(permisosData);
       setIsLoggedIn(true);
+      
       cargarDatos();
     } catch (error) {
       alert('Error: ' + (error.response?.data?.error || 'Credenciales inválidas'));
@@ -54,6 +78,7 @@ function App() {
     const correo = e.target.correo.value;
     const contrasena = e.target.contrasena.value;
     const confirmarContrasena = e.target.confirmarContrasena.value;
+    const rol = e.target.rol.value;
 
     if (contrasena !== confirmarContrasena) {
       alert('Las contraseñas no coinciden');
@@ -70,13 +95,11 @@ function App() {
         nombre,
         correo,
         contrasena,
-        rol: 'administrador'
+        rol
       });
       
       alert('✅ ' + response.data.mensaje + '\n\nAhora puedes iniciar sesión con tus credenciales.');
       setMostrarRegistro(false);
-      
-      // Limpiar formulario
       e.target.reset();
     } catch (error) {
       alert('❌ Error: ' + (error.response?.data?.error || 'Error al registrar usuario'));
@@ -86,58 +109,114 @@ function App() {
   // Logout
   const handleLogout = () => {
     localStorage.removeItem('token');
+    delete axios.defaults.headers.common['Authorization'];
     setIsLoggedIn(false);
     setUsuario(null);
+    setPermisos([]);
   };
 
   // Cargar todos los datos
   const cargarDatos = async () => {
     try {
-      const [prodRes, cliRes, pedRes, estRes] = await Promise.all([
-        axios.get(`${API_URL}/productos`),
-        axios.get(`${API_URL}/clientes`),
-        axios.get(`${API_URL}/pedidos`),
+      const token = localStorage.getItem('token');
+      if (token) {
+        configurarAxios(token);
+      }
+
+      const promesas = [
         axios.get(`${API_URL}/estadisticas`)
-      ]);
+      ];
+
+      // Solo cargar datos según permisos
+      if (tienePermiso('productos', 'puede_ver') || permisos.length === 0) {
+        promesas.push(axios.get(`${API_URL}/productos`));
+      }
+      if (tienePermiso('clientes', 'puede_ver') || permisos.length === 0) {
+        promesas.push(axios.get(`${API_URL}/clientes`));
+      }
+      if (tienePermiso('pedidos', 'puede_ver') || permisos.length === 0) {
+        promesas.push(axios.get(`${API_URL}/pedidos`));
+      }
+
+      const resultados = await Promise.allSettled(promesas);
       
-      setProductos(prodRes.data);
-      setClientes(cliRes.data);
-      setPedidos(pedRes.data);
-      setEstadisticas(estRes.data);
+      if (resultados[0].status === 'fulfilled') setEstadisticas(resultados[0].value.data);
+      if (resultados[1]?.status === 'fulfilled') setProductos(resultados[1].value.data);
+      if (resultados[2]?.status === 'fulfilled') setClientes(resultados[2].value.data);
+      if (resultados[3]?.status === 'fulfilled') setPedidos(resultados[3].value.data);
+
+      // Cargar alertas de stock si tiene permiso
+      if (tienePermiso('inventario', 'puede_ver') || usuario?.rol === 'administrador') {
+        const alertas = await axios.get(`${API_URL}/alertas-stock`);
+        setAlertasStock(alertas.data);
+      }
+
+      // Cargar usuarios si es administrador
+      if (usuario?.rol === 'administrador' && tienePermiso('usuarios', 'puede_ver')) {
+        const usuariosRes = await axios.get(`${API_URL}/usuarios`);
+        setUsuarios(usuariosRes.data);
+      }
+
     } catch (error) {
       console.error('Error al cargar datos:', error);
+      if (error.response?.status === 401) {
+        handleLogout();
+      }
     }
   };
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      setIsLoggedIn(true);
-      cargarDatos();
+      configurarAxios(token);
+      // Intentar validar el token haciendo una petición
+      axios.get(`${API_URL}/estadisticas`)
+        .then(() => setIsLoggedIn(true))
+        .catch(() => {
+          localStorage.removeItem('token');
+          setIsLoggedIn(false);
+        });
     }
   }, []);
+
+  useEffect(() => {
+    if (isLoggedIn && permisos.length > 0) {
+      cargarDatos();
+    }
+  }, [isLoggedIn, permisos]);
 
   // ========== PRODUCTOS ==========
   
   const crearProducto = async (e) => {
     e.preventDefault();
+    if (!tienePermiso('productos', 'puede_crear')) {
+      alert('No tienes permisos para crear productos');
+      return;
+    }
+
     try {
       await axios.post(`${API_URL}/productos`, formProducto);
       setFormProducto({ nombre: '', descripcion: '', precio: '', stock: '', categoria: '' });
       cargarDatos();
-      alert('Producto creado exitosamente');
+      alert('✅ Producto creado exitosamente');
     } catch (error) {
-      alert('Error al crear producto');
+      alert('❌ Error al crear producto');
     }
   };
 
   const eliminarProducto = async (id) => {
+    if (!tienePermiso('productos', 'puede_eliminar')) {
+      alert('No tienes permisos para eliminar productos');
+      return;
+    }
+
     if (window.confirm('¿Eliminar este producto?')) {
       try {
         await axios.delete(`${API_URL}/productos/${id}`);
         cargarDatos();
+        alert('✅ Producto eliminado');
       } catch (error) {
-        alert('Error al eliminar producto');
+        alert('❌ Error al eliminar producto');
       }
     }
   };
@@ -146,13 +225,18 @@ function App() {
   
   const crearCliente = async (e) => {
     e.preventDefault();
+    if (!tienePermiso('clientes', 'puede_crear')) {
+      alert('No tienes permisos para crear clientes');
+      return;
+    }
+
     try {
       await axios.post(`${API_URL}/clientes`, formCliente);
       setFormCliente({ nombre: '', telefono: '', correo: '' });
       cargarDatos();
-      alert('Cliente registrado exitosamente');
+      alert('✅ Cliente registrado exitosamente');
     } catch (error) {
-      alert('Error al registrar cliente');
+      alert('❌ Error al registrar cliente');
     }
   };
 
@@ -212,6 +296,11 @@ function App() {
   };
 
   const crearPedido = async () => {
+    if (!tienePermiso('pedidos', 'puede_crear')) {
+      alert('No tienes permisos para crear pedidos');
+      return;
+    }
+
     if (!pedidoActual.cliente) {
       alert('Selecciona un cliente primero');
       return;
@@ -229,12 +318,22 @@ function App() {
         notas: pedidoActual.notas
       });
       
-      alert('¡Pedido creado exitosamente!');
+      alert('✅ ¡Pedido creado exitosamente!');
       setPedidoActual({ cliente: null, productos: [], notas: '' });
       cargarDatos();
       setVistaActual('pedidos');
     } catch (error) {
-      alert('Error al crear pedido');
+      alert('❌ Error al crear pedido');
+    }
+  };
+
+  // Resolver alerta de stock
+  const resolverAlerta = async (id) => {
+    try {
+      await axios.put(`${API_URL}/alertas-stock/${id}/resolver`);
+      cargarDatos();
+    } catch (error) {
+      alert('Error al resolver alerta');
     }
   };
 
@@ -245,68 +344,43 @@ function App() {
       <div className="login-container">
         <div className="login-box">
           <h1>🧁 Vins Bakery</h1>
-          <p>Sistema de Gestión y Fidelización</p>
+          <p>Sistema de Gestión Multi-Roles</p>
           
           {!mostrarRegistro ? (
-            // FORMULARIO DE LOGIN
             <>
               <form onSubmit={handleLogin}>
                 <input type="email" name="correo" placeholder="Correo electrónico" required />
                 <input type="password" name="contrasena" placeholder="Contraseña" required />
                 <button type="submit" className="btn-login">Iniciar Sesión</button>
               </form>
-              <div className="divider">
-                <span>o</span>
-              </div>
-              <button 
-                className="btn-registro-toggle" 
-                onClick={() => setMostrarRegistro(true)}
-              >
+              <div className="divider"><span>o</span></div>
+              <button className="btn-registro-toggle" onClick={() => setMostrarRegistro(true)}>
                 Crear Nueva Cuenta
               </button>
-              <small className="info-login">Usuario demo: admin@vinsbakery.com | Contraseña: admin123</small>
+              <small className="info-login">
+                👤 Admin: admin@vinsbakery.com | admin123<br/>
+                👤 Empleado: empleado@vinsbakery.com | empleado123<br/>
+                👤 Cliente: cliente@vinsbakery.com | cliente123
+              </small>
             </>
           ) : (
-            // FORMULARIO DE REGISTRO
             <>
               <h2 className="registro-titulo">Crear Cuenta Nueva</h2>
               <form onSubmit={handleRegistro}>
-                <input 
-                  type="text" 
-                  name="nombre" 
-                  placeholder="Nombre completo" 
-                  required 
-                  minLength="3"
-                />
-                <input 
-                  type="email" 
-                  name="correo" 
-                  placeholder="Correo electrónico" 
-                  required 
-                />
-                <input 
-                  type="password" 
-                  name="contrasena" 
-                  placeholder="Contraseña (mínimo 6 caracteres)" 
-                  required 
-                  minLength="6"
-                />
-                <input 
-                  type="password" 
-                  name="confirmarContrasena" 
-                  placeholder="Confirmar contraseña" 
-                  required 
-                  minLength="6"
-                />
+                <input type="text" name="nombre" placeholder="Nombre completo" required minLength="3" />
+                <input type="email" name="correo" placeholder="Correo electrónico" required />
+                <input type="password" name="contrasena" placeholder="Contraseña (mínimo 6 caracteres)" required minLength="6" />
+                <input type="password" name="confirmarContrasena" placeholder="Confirmar contraseña" required minLength="6" />
+                                  <select name="rol" required>
+                  <option value="">Seleccionar rol</option>
+                  <option value="cliente">Cliente</option>
+                  <option value="empleado">Empleado</option>
+                  <option value="administrador">Administrador</option>
+                </select>
                 <button type="submit" className="btn-registro">Registrarme</button>
               </form>
-              <div className="divider">
-                <span>o</span>
-              </div>
-              <button 
-                className="btn-volver-login" 
-                onClick={() => setMostrarRegistro(false)}
-              >
+              <div className="divider"><span>o</span></div>
+              <button className="btn-volver-login" onClick={() => setMostrarRegistro(false)}>
                 Ya tengo cuenta - Iniciar Sesión
               </button>
             </>
@@ -323,25 +397,81 @@ function App() {
         <h2>🧁 Vins Bakery</h2>
         <div className="user-info">
           <p>{usuario?.nombre}</p>
-          <span>{usuario?.rol}</span>
+          <span className={`badge ${usuario?.rol}`}>
+            {usuario?.rol === 'administrador' && '👑 Administrador'}
+            {usuario?.rol === 'empleado' && '👤 Empleado'}
+            {usuario?.rol === 'cliente' && '🛍️ Cliente'}
+            {usuario?.rol === 'sistema' && '⚙️ Sistema'}
+          </span>
         </div>
         
         <nav>
           <button className={vistaActual === 'dashboard' ? 'active' : ''} onClick={() => setVistaActual('dashboard')}>
             📊 Dashboard
           </button>
-          <button className={vistaActual === 'productos' ? 'active' : ''} onClick={() => setVistaActual('productos')}>
-            🧁 Productos
-          </button>
-          <button className={vistaActual === 'clientes' ? 'active' : ''} onClick={() => setVistaActual('clientes')}>
-            👥 Clientes
-          </button>
-          <button className={vistaActual === 'nuevo-pedido' ? 'active' : ''} onClick={() => setVistaActual('nuevo-pedido')}>
-            ➕ Nuevo Pedido
-          </button>
-          <button className={vistaActual === 'pedidos' ? 'active' : ''} onClick={() => setVistaActual('pedidos')}>
-            📦 Pedidos
-          </button>
+          
+          {usuario?.rol === 'cliente' && (
+            <>
+              <button className={vistaActual === 'catalogo' ? 'active' : ''} onClick={() => setVistaActual('catalogo')}>
+                🧁 Catálogo
+              </button>
+              <button className={vistaActual === 'mis-pedidos' ? 'active' : ''} onClick={() => setVistaActual('mis-pedidos')}>
+                📦 Mis Pedidos
+              </button>
+              <button className={vistaActual === 'mi-perfil' ? 'active' : ''} onClick={() => setVistaActual('mi-perfil')}>
+                👤 Mi Perfil
+              </button>
+              <button className={vistaActual === 'beneficios' ? 'active' : ''} onClick={() => setVistaActual('beneficios')}>
+                🎁 Mis Beneficios
+              </button>
+            </>
+          )}
+          
+          {usuario?.rol !== 'cliente' && (
+            <>
+              {tienePermiso('productos', 'puede_ver') && (
+                <button className={vistaActual === 'productos' ? 'active' : ''} onClick={() => setVistaActual('productos')}>
+                  🧁 Productos
+                </button>
+              )}
+              
+              {tienePermiso('clientes', 'puede_ver') && (
+                <button className={vistaActual === 'clientes' ? 'active' : ''} onClick={() => setVistaActual('clientes')}>
+                  👥 Clientes
+                </button>
+              )}
+              
+              {tienePermiso('pedidos', 'puede_crear') && (
+                <button className={vistaActual === 'nuevo-pedido' ? 'active' : ''} onClick={() => setVistaActual('nuevo-pedido')}>
+                  ➕ Nuevo Pedido
+                </button>
+              )}
+              
+              {tienePermiso('pedidos', 'puede_ver') && (
+                <button className={vistaActual === 'pedidos' ? 'active' : ''} onClick={() => setVistaActual('pedidos')}>
+                  📦 Pedidos
+                </button>
+              )}
+              
+              {tienePermiso('inventario', 'puede_ver') && (
+                <button className={vistaActual === 'alertas' ? 'active' : ''} onClick={() => setVistaActual('alertas')}>
+                  🔔 Alertas Stock {alertasStock.length > 0 && `(${alertasStock.length})`}
+                </button>
+              )}
+              
+              {usuario?.rol === 'administrador' && tienePermiso('seguridad', 'puede_ver') && (
+                <button className={vistaActual === 'log' ? 'active' : ''} onClick={() => setVistaActual('log')}>
+                  📋 Log Actividades
+                </button>
+              )}
+              
+              {usuario?.rol === 'administrador' && tienePermiso('usuarios', 'puede_ver') && (
+                <button className={vistaActual === 'usuarios' ? 'active' : ''} onClick={() => setVistaActual('usuarios')}>
+                  👥 Usuarios
+                </button>
+              )}
+            </>
+          )}
         </nav>
         
         <button className="logout-btn" onClick={handleLogout}>
@@ -373,74 +503,62 @@ function App() {
                 <h3>🧁 Productos</h3>
                 <p className="stat-number">{estadisticas.productos}</p>
               </div>
+              {estadisticas.alertas > 0 && (
+                <div className="stat-card alerta">
+                  <h3>🔔 Alertas Stock</h3>
+                  <p className="stat-number">{estadisticas.alertas}</p>
+                </div>
+              )}
             </div>
 
-            <div className="section">
-              <h2>Clientes VIP (Nivel Oro)</h2>
-              <div className="clientes-vip">
-                {clientes.filter(c => c.nivel_fidelidad === 'Oro').map(cliente => (
-                  <div key={cliente.id_cliente} className="cliente-vip-card">
-                    <h4>{cliente.nombre}</h4>
-                    <span className="badge gold">⭐ Oro - {cliente.descuento_actual}% desc.</span>
-                    <p>{cliente.total_compras} compras</p>
-                    <p>${cliente.monto_total?.toLocaleString()}</p>
-                  </div>
-                ))}
+            {tienePermiso('clientes', 'puede_ver') && (
+              <div className="section">
+                <h2>Clientes VIP (Nivel Oro)</h2>
+                <div className="clientes-vip">
+                  {clientes.filter(c => c.nivel_fidelidad === 'Oro').slice(0, 6).map(cliente => (
+                    <div key={cliente.id_cliente} className="cliente-vip-card">
+                      <h4>{cliente.nombre}</h4>
+                      <span className="badge gold">⭐ Oro - {cliente.descuento_actual}% desc.</span>
+                      <p>{cliente.total_compras} compras</p>
+                      <p>${cliente.monto_total?.toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
         {/* PRODUCTOS */}
-        {vistaActual === 'productos' && (
+        {vistaActual === 'productos' && tienePermiso('productos', 'puede_ver') && (
           <div>
             <h1>Gestión de Productos</h1>
             
-            <div className="form-card">
-              <h2>Nuevo Producto</h2>
-              <form onSubmit={crearProducto} className="form-grid">
-                <input
-                  type="text"
-                  placeholder="Nombre"
-                  value={formProducto.nombre}
-                  onChange={(e) => setFormProducto({...formProducto, nombre: e.target.value})}
-                  required
-                />
-                <input
-                  type="text"
-                  placeholder="Descripción"
-                  value={formProducto.descripcion}
-                  onChange={(e) => setFormProducto({...formProducto, descripcion: e.target.value})}
-                />
-                <input
-                  type="number"
-                  placeholder="Precio"
-                  value={formProducto.precio}
-                  onChange={(e) => setFormProducto({...formProducto, precio: e.target.value})}
-                  required
-                />
-                <input
-                  type="number"
-                  placeholder="Stock"
-                  value={formProducto.stock}
-                  onChange={(e) => setFormProducto({...formProducto, stock: e.target.value})}
-                  required
-                />
-                <select
-                  value={formProducto.categoria}
-                  onChange={(e) => setFormProducto({...formProducto, categoria: e.target.value})}
-                  required
-                >
-                  <option value="">Categoría</option>
-                  <option value="Pasteles">Pasteles</option>
-                  <option value="Cupcakes">Cupcakes</option>
-                  <option value="Galletas">Galletas</option>
-                  <option value="Postres">Postres</option>
-                  <option value="Panes">Panes</option>
-                </select>
-                <button type="submit" className="btn-primary">Crear Producto</button>
-              </form>
-            </div>
+            {tienePermiso('productos', 'puede_crear') && (
+              <div className="form-card">
+                <h2>Nuevo Producto</h2>
+                <form onSubmit={crearProducto} className="form-grid">
+                  <input type="text" placeholder="Nombre" value={formProducto.nombre}
+                    onChange={(e) => setFormProducto({...formProducto, nombre: e.target.value})} required />
+                  <input type="text" placeholder="Descripción" value={formProducto.descripcion}
+                    onChange={(e) => setFormProducto({...formProducto, descripcion: e.target.value})} />
+                  <input type="number" placeholder="Precio" value={formProducto.precio}
+                    onChange={(e) => setFormProducto({...formProducto, precio: e.target.value})} required />
+                  <input type="number" placeholder="Stock" value={formProducto.stock}
+                    onChange={(e) => setFormProducto({...formProducto, stock: e.target.value})} required />
+                  <select value={formProducto.categoria}
+                    onChange={(e) => setFormProducto({...formProducto, categoria: e.target.value})} required>
+                    <option value="">Categoría</option>
+                    <option value="Pasteles">Pasteles</option>
+                    <option value="Cupcakes">Cupcakes</option>
+                    <option value="Galletas">Galletas</option>
+                    <option value="Postres">Postres</option>
+                    <option value="Panes">Panes</option>
+                  </select>
+                  <button type="submit" className="btn-primary">Crear Producto</button>
+                </form>
+              </div>
+            )}
 
             <div className="productos-grid">
               {productos.map(producto => (
@@ -450,9 +568,11 @@ function App() {
                   <p className="descripcion">{producto.descripcion}</p>
                   <p className="precio">${producto.precio?.toLocaleString()}</p>
                   <p className="stock">Stock: {producto.stock}</p>
-                  <button onClick={() => eliminarProducto(producto.id_producto)} className="btn-delete">
-                    Eliminar
-                  </button>
+                  {tienePermiso('productos', 'puede_eliminar') && (
+                    <button onClick={() => eliminarProducto(producto.id_producto)} className="btn-delete">
+                      Eliminar
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -460,36 +580,24 @@ function App() {
         )}
 
         {/* CLIENTES */}
-        {vistaActual === 'clientes' && (
+        {vistaActual === 'clientes' && tienePermiso('clientes', 'puede_ver') && (
           <div>
             <h1>Gestión de Clientes</h1>
             
-            <div className="form-card">
-              <h2>Nuevo Cliente</h2>
-              <form onSubmit={crearCliente} className="form-grid">
-                <input
-                  type="text"
-                  placeholder="Nombre completo"
-                  value={formCliente.nombre}
-                  onChange={(e) => setFormCliente({...formCliente, nombre: e.target.value})}
-                  required
-                />
-                <input
-                  type="tel"
-                  placeholder="Teléfono"
-                  value={formCliente.telefono}
-                  onChange={(e) => setFormCliente({...formCliente, telefono: e.target.value})}
-                  required
-                />
-                <input
-                  type="email"
-                  placeholder="Correo (opcional)"
-                  value={formCliente.correo}
-                  onChange={(e) => setFormCliente({...formCliente, correo: e.target.value})}
-                />
-                <button type="submit" className="btn-primary">Registrar Cliente</button>
-              </form>
-            </div>
+            {tienePermiso('clientes', 'puede_crear') && (
+              <div className="form-card">
+                <h2>Nuevo Cliente</h2>
+                <form onSubmit={crearCliente} className="form-grid">
+                  <input type="text" placeholder="Nombre completo" value={formCliente.nombre}
+                    onChange={(e) => setFormCliente({...formCliente, nombre: e.target.value})} required />
+                  <input type="tel" placeholder="Teléfono" value={formCliente.telefono}
+                    onChange={(e) => setFormCliente({...formCliente, telefono: e.target.value})} required />
+                  <input type="email" placeholder="Correo (opcional)" value={formCliente.correo}
+                    onChange={(e) => setFormCliente({...formCliente, correo: e.target.value})} />
+                  <button type="submit" className="btn-primary">Registrar Cliente</button>
+                </form>
+              </div>
+            )}
 
             <div className="table-container">
               <table>
@@ -508,11 +616,9 @@ function App() {
                     <tr key={cliente.id_cliente}>
                       <td>{cliente.nombre}</td>
                       <td>{cliente.telefono}</td>
-                      <td>
-                        <span className={`badge ${cliente.nivel_fidelidad.toLowerCase()}`}>
-                          {cliente.nivel_fidelidad}
-                        </span>
-                      </td>
+                      <td><span className={`badge ${cliente.nivel_fidelidad.toLowerCase()}`}>
+                        {cliente.nivel_fidelidad}
+                      </span></td>
                       <td>{cliente.descuento_actual}%</td>
                       <td>{cliente.total_compras}</td>
                       <td>${cliente.monto_total?.toLocaleString()}</td>
@@ -525,19 +631,16 @@ function App() {
         )}
 
         {/* NUEVO PEDIDO */}
-        {vistaActual === 'nuevo-pedido' && (
+        {vistaActual === 'nuevo-pedido' && tienePermiso('pedidos', 'puede_crear') && (
           <div>
             <h1>Crear Nuevo Pedido</h1>
             
             <div className="pedido-container">
-              {/* Seleccionar Cliente */}
               <div className="form-card">
                 <h2>1. Seleccionar Cliente</h2>
                 {!pedidoActual.cliente ? (
                   <div>
-                    <input
-                      type="tel"
-                      placeholder="Buscar por teléfono"
+                    <input type="tel" placeholder="Buscar por teléfono"
                       onBlur={async (e) => {
                         const cliente = await buscarClientePorTelefono(e.target.value);
                         if (cliente) {
@@ -575,7 +678,6 @@ function App() {
                 )}
               </div>
 
-              {/* Seleccionar Productos */}
               <div className="form-card">
                 <h2>2. Seleccionar Productos</h2>
                 <div className="productos-grid-small">
@@ -584,11 +686,8 @@ function App() {
                       <h4>{producto.nombre}</h4>
                       <p>${producto.precio?.toLocaleString()}</p>
                       <p className="stock-small">Stock: {producto.stock}</p>
-                      <button 
-                        onClick={() => agregarProductoAPedido(producto)}
-                        disabled={producto.stock === 0}
-                        className="btn-add"
-                      >
+                      <button onClick={() => agregarProductoAPedido(producto)}
+                        disabled={producto.stock === 0} className="btn-add">
                         Agregar
                       </button>
                     </div>
@@ -596,7 +695,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Resumen del Pedido */}
               <div className="form-card">
                 <h2>3. Resumen del Pedido</h2>
                 {pedidoActual.productos.length === 0 ? (
@@ -618,10 +716,7 @@ function App() {
                           <tr key={p.id_producto}>
                             <td>{p.nombre}</td>
                             <td>
-                              <input
-                                type="number"
-                                min="1"
-                                value={p.cantidad}
+                              <input type="number" min="1" value={p.cantidad}
                                 onChange={(e) => {
                                   setPedidoActual({
                                     ...pedidoActual,
@@ -638,12 +733,8 @@ function App() {
                             <td>${p.precio_unitario?.toLocaleString()}</td>
                             <td>${(p.precio_unitario * p.cantidad).toLocaleString()}</td>
                             <td>
-                              <button 
-                                onClick={() => eliminarProductoDePedido(p.id_producto)}
-                                className="btn-delete-small"
-                              >
-                                ✕
-                              </button>
+                              <button onClick={() => eliminarProductoDePedido(p.id_producto)}
+                                className="btn-delete-small">✕</button>
                             </td>
                           </tr>
                         ))}
@@ -661,9 +752,7 @@ function App() {
                       <h3>Total: ${calcularTotalPedido().total.toLocaleString()}</h3>
                     </div>
 
-                    <textarea
-                      placeholder="Notas del pedido (opcional)"
-                      value={pedidoActual.notas}
+                    <textarea placeholder="Notas del pedido (opcional)" value={pedidoActual.notas}
                       onChange={(e) => setPedidoActual({...pedidoActual, notas: e.target.value})}
                       rows="3"
                     />
@@ -679,7 +768,7 @@ function App() {
         )}
 
         {/* LISTA DE PEDIDOS */}
-        {vistaActual === 'pedidos' && (
+        {vistaActual === 'pedidos' && tienePermiso('pedidos', 'puede_ver') && (
           <div>
             <h1>Historial de Pedidos</h1>
             <div className="table-container">
@@ -720,6 +809,388 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* ALERTAS DE STOCK */}
+        {vistaActual === 'alertas' && tienePermiso('inventario', 'puede_ver') && (
+          <div>
+            <h1>🔔 Alertas de Stock</h1>
+            
+            {alertasStock.length === 0 ? (
+              <div className="section">
+                <p style={{textAlign: 'center', color: '#4caf50', fontSize: '1.2em'}}>
+                  ✅ No hay alertas activas
+                </p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th>Categoría</th>
+                      <th>Tipo Alerta</th>
+                      <th>Stock Actual</th>
+                      <th>Umbral</th>
+                      <th>Fecha</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alertasStock.map(alerta => (
+                      <tr key={alerta.id_alerta} className={alerta.tipo_alerta === 'agotado' ? 'alerta-critica' : ''}>
+                        <td>{alerta.nombre_producto}</td>
+                        <td>{alerta.categoria}</td>
+                        <td>
+                          <span className={`badge ${alerta.tipo_alerta}`}>
+                            {alerta.tipo_alerta === 'agotado' && '🚨 AGOTADO'}
+                            {alerta.tipo_alerta === 'bajo' && '⚠️ Stock Bajo'}
+                            {alerta.tipo_alerta === 'critico' && '❗ Crítico'}
+                          </span>
+                        </td>
+                        <td><strong>{alerta.stock_actual}</strong></td>
+                        <td>{alerta.umbral}</td>
+                        <td>{new Date(alerta.fecha_alerta).toLocaleDateString()}</td>
+                        <td>
+                          <button onClick={() => resolverAlerta(alerta.id_alerta)} className="btn-primary">
+                            Resolver
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* LOG DE ACTIVIDADES - Solo Administradores */}
+        {vistaActual === 'log' && usuario?.rol === 'administrador' && (
+          <div>
+            <h1>📋 Log de Actividades</h1>
+            <button onClick={async () => {
+              try {
+                const response = await axios.get(`${API_URL}/log-actividades`);
+                setLogActividades(response.data);
+              } catch (error) {
+                alert('Error al cargar log');
+              }
+            }} className="btn-primary" style={{marginBottom: '20px'}}>
+              Actualizar Log
+            </button>
+
+            {logActividades.length === 0 ? (
+              <div className="section">
+                <p style={{textAlign: 'center'}}>Haz clic en "Actualizar Log" para ver las actividades</p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha/Hora</th>
+                      <th>Usuario</th>
+                      <th>Rol</th>
+                      <th>Módulo</th>
+                      <th>Acción</th>
+                      <th>Detalle</th>
+                      <th>IP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logActividades.map(log => (
+                      <tr key={log.id_log}>
+                        <td>{new Date(log.fecha_hora).toLocaleString()}</td>
+                        <td>{log.usuario_nombre}</td>
+                        <td>
+                          <span className={`badge ${log.rol}`}>
+                            {log.rol}
+                          </span>
+                        </td>
+                        <td>{log.modulo}</td>
+                        <td>{log.accion}</td>
+                        <td>{log.detalle || '-'}</td>
+                        <td>{log.ip_address || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* USUARIOS - Solo Administradores */}
+        {vistaActual === 'usuarios' && usuario?.rol === 'administrador' && (
+          <div>
+            <h1>👥 Gestión de Usuarios</h1>
+            
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Correo</th>
+                    <th>Rol</th>
+                    <th>Fecha Registro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usuarios.map(user => (
+                    <tr key={user.id_usuario}>
+                      <td>#{user.id_usuario}</td>
+                      <td>{user.nombre}</td>
+                      <td>{user.correo}</td>
+                      <td>
+                        <span className={`badge ${user.rol}`}>
+                          {user.rol === 'administrador' && '👑 Administrador'}
+                          {user.rol === 'empleado' && '👤 Empleado'}
+                          {user.rol === 'cliente' && '🛍️ Cliente'}
+                          {user.rol === 'sistema' && '⚙️ Sistema'}
+                        </span>
+                      </td>
+                      <td>{new Date(user.fecha_registro).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ========== VISTAS PARA CLIENTES ========== */}
+        
+        {/* CATÁLOGO - Vista Cliente */}
+        {vistaActual === 'catalogo' && usuario?.rol === 'cliente' && (
+          <div>
+            <h1>🧁 Catálogo de Productos</h1>
+            <div className="productos-grid">
+              {productos.map(producto => (
+                <div key={producto.id_producto} className="producto-card">
+                  <h3>{producto.nombre}</h3>
+                  <p className="categoria">{producto.categoria}</p>
+                  <p className="descripcion">{producto.descripcion}</p>
+                  <p className="precio">${producto.precio?.toLocaleString()}</p>
+                  <p className="stock">
+                    {producto.stock > 0 ? `✅ Disponible (${producto.stock})` : '❌ Agotado'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* MIS PEDIDOS - Vista Cliente */}
+        {vistaActual === 'mis-pedidos' && usuario?.rol === 'cliente' && (
+          <div>
+            <h1>📦 Mis Pedidos</h1>
+            <button onClick={async () => {
+              try {
+                const response = await axios.get(`${API_URL}/pedidos/cliente/${usuario.id}`);
+                setMisPedidos(response.data);
+              } catch (error) {
+                alert('Error al cargar pedidos');
+              }
+            }} className="btn-primary" style={{marginBottom: '20px'}}>
+              Actualizar Pedidos
+            </button>
+
+            {misPedidos.length === 0 ? (
+              <div className="section">
+                <p style={{textAlign: 'center', color: '#666'}}>
+                  No tienes pedidos aún. ¡Explora nuestro catálogo!
+                </p>
+              </div>
+            ) : (
+              <div className="mis-pedidos-grid">
+                {misPedidos.map(pedido => (
+                  <div key={pedido.id_pedido} className="pedido-card">
+                    <h3>Pedido #{pedido.id_pedido}</h3>
+                    <p className="pedido-info">
+                      📅 {new Date(pedido.fecha_pedido).toLocaleDateString()}
+                    </p>
+                    <p className="pedido-info">
+                      Estado: <span className="badge">{pedido.estado}</span>
+                    </p>
+                    {pedido.descuento > 0 && (
+                      <p className="pedido-info descuento">
+                        💰 Descuento aplicado: ${pedido.descuento.toLocaleString()}
+                      </p>
+                    )}
+                    <p className="pedido-total">${pedido.total_final?.toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MI PERFIL - Vista Cliente */}
+        {vistaActual === 'mi-perfil' && usuario?.rol === 'cliente' && (
+          <div>
+            <h1>👤 Mi Perfil</h1>
+            <button onClick={async () => {
+              try {
+                const response = await axios.get(`${API_URL}/clientes/usuario/${usuario.id}`);
+                setMiPerfil(response.data);
+              } catch (error) {
+                alert('Error al cargar perfil');
+              }
+            }} className="btn-primary" style={{marginBottom: '20px'}}>
+              Actualizar Información
+            </button>
+
+            {miPerfil && (
+              <div className="perfil-card">
+                <h2>Información Personal</h2>
+                <div className="perfil-info">
+                  <div className="perfil-item">
+                    <h4>Nombre</h4>
+                    <p>{miPerfil.nombre}</p>
+                  </div>
+                  <div className="perfil-item">
+                    <h4>Teléfono</h4>
+                    <p>{miPerfil.telefono}</p>
+                  </div>
+                  <div className="perfil-item">
+                    <h4>Correo</h4>
+                    <p>{miPerfil.correo || 'No registrado'}</p>
+                  </div>
+                  <div className="perfil-item">
+                    <h4>Nivel de Fidelidad</h4>
+                    <p>
+                      <span className={`badge ${miPerfil.nivel_fidelidad?.toLowerCase()}`}>
+                        {miPerfil.nivel_fidelidad}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="perfil-item">
+                    <h4>Descuento Actual</h4>
+                    <p>{miPerfil.descuento_actual}%</p>
+                  </div>
+                  <div className="perfil-item">
+                    <h4>Total de Compras</h4>
+                    <p>{miPerfil.total_compras}</p>
+                  </div>
+                  <div className="perfil-item">
+                    <h4>Monto Total Gastado</h4>
+                    <p>${miPerfil.monto_total?.toLocaleString()}</p>
+                  </div>
+                  <div className="perfil-item">
+                    <h4>Miembro desde</h4>
+                    <p>{new Date(miPerfil.fecha_registro).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="section" style={{marginTop: '30px'}}>
+              <h2>Progreso de Fidelidad</h2>
+              <p style={{marginBottom: '15px', color: '#666'}}>
+                Sigue comprando para alcanzar el siguiente nivel y obtener más beneficios
+              </p>
+              {miPerfil && (
+                <div>
+                  {miPerfil.nivel_fidelidad === 'Bronce' && (
+                    <p>
+                      🥈 Te faltan <strong>{5 - miPerfil.total_compras}</strong> compras para nivel Plata (5% descuento)
+                    </p>
+                  )}
+                  {miPerfil.nivel_fidelidad === 'Plata' && (
+                    <p>
+                      🥇 Te faltan <strong>{10 - miPerfil.total_compras}</strong> compras para nivel Oro (10% descuento)
+                    </p>
+                  )}
+                  {miPerfil.nivel_fidelidad === 'Oro' && (
+                    <p>
+                      ⭐ ¡Felicitaciones! Has alcanzado el nivel máximo con 10% de descuento
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* BENEFICIOS - Vista Cliente */}
+        {vistaActual === 'beneficios' && usuario?.rol === 'cliente' && (
+          <div>
+            <h1>🎁 Mis Beneficios</h1>
+            <button onClick={async () => {
+              try {
+                const response = await axios.get(`${API_URL}/beneficios/cliente/${usuario.id}`);
+                setBeneficiosDisponibles(response.data);
+              } catch (error) {
+                alert('Error al cargar beneficios');
+              }
+            }} className="btn-primary" style={{marginBottom: '20px'}}>
+              Actualizar Beneficios
+            </button>
+
+            {beneficiosDisponibles.length === 0 ? (
+              <div className="section">
+                <p style={{textAlign: 'center', color: '#666'}}>
+                  No tienes beneficios disponibles en este momento
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="beneficios-grid">
+                  {beneficiosDisponibles.filter(b => !b.usado).map(beneficio => (
+                    <div key={beneficio.id_beneficio} className="beneficio-card">
+                      <div className="beneficio-icono">
+                        {beneficio.tipo_beneficio === 'cumpleanos' && '🎂'}
+                        {beneficio.tipo_beneficio === 'caja_galletas' && '🍪'}
+                      </div>
+                      <h4>
+                        {beneficio.tipo_beneficio === 'cumpleanos' && '15% Descuento Cumpleaños'}
+                        {beneficio.tipo_beneficio === 'caja_galletas' && 'Caja de Galletas Gratis'}
+                      </h4>
+                      <p>📅 Disponible desde: {new Date(beneficio.fecha_aplicacion).toLocaleDateString()}</p>
+                      <p style={{marginTop: '10px', fontWeight: 'bold', color: '#2e7d32'}}>
+                        ✅ Beneficio Activo
+                      </p>
+                      <p style={{fontSize: '0.9em', marginTop: '10px'}}>
+                        {beneficio.notas}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {beneficiosDisponibles.some(b => b.usado) && (
+                  <div style={{marginTop: '40px'}}>
+                    <h2>Beneficios Usados</h2>
+                    <div className="beneficios-grid">
+                      {beneficiosDisponibles.filter(b => b.usado).map(beneficio => (
+                        <div key={beneficio.id_beneficio} className="beneficio-card usado">
+                          <div className="beneficio-icono">
+                            {beneficio.tipo_beneficio === 'cumpleanos' && '🎂'}
+                            {beneficio.tipo_beneficio === 'caja_galletas' && '🍪'}
+                          </div>
+                          <h4>
+                            {beneficio.tipo_beneficio === 'cumpleanos' && '15% Descuento Cumpleaños'}
+                            {beneficio.tipo_beneficio === 'caja_galletas' && 'Caja de Galletas Gratis'}
+                          </h4>
+                          <p>✓ Usado el: {new Date(beneficio.fecha_uso).toLocaleDateString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="section" style={{marginTop: '30px'}}>
+              <h2>¿Cómo obtener más beneficios?</h2>
+              <ul style={{lineHeight: '2', color: '#666', paddingLeft: '20px'}}>
+                <li>🍪 Por cada 10 compras, recibe una caja de galletas gratis</li>
+                <li>⭐ Alcanza nivel Oro y obtén 10% de descuento permanente</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

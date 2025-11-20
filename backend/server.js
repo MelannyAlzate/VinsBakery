@@ -1,4 +1,4 @@
-// backend/server.js
+// backend/server.js - Multi-Roles
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -18,7 +18,6 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
 });
 
-// Verificar conexión
 pool.connect((err, client, release) => {
   if (err) {
     console.error('❌ Error de conexión:', err);
@@ -28,13 +27,68 @@ pool.connect((err, client, release) => {
   }
 });
 
-// Middlewares
 app.use(cors());
 app.use(express.json());
 
+// ========== MIDDLEWARE DE AUTENTICACIÓN ==========
+
+const verificarToken = (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Token no proporcionado' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret_key_vinsbakery_2024');
+    req.usuario = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
+};
+
+// Middleware para verificar permisos
+const verificarPermiso = (modulo, accion) => {
+  return async (req, res, next) => {
+    try {
+      const { rol } = req.usuario;
+      
+      const result = await pool.query(
+        `SELECT ${accion} FROM permisos_rol WHERE rol = $1 AND modulo = $2`,
+        [rol, modulo]
+      );
+
+      if (result.rows.length === 0 || !result.rows[0][accion]) {
+        return res.status(403).json({ 
+          error: 'No tienes permisos para realizar esta acción',
+          modulo,
+          accion
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Error al verificar permisos:', error);
+      res.status(500).json({ error: 'Error al verificar permisos' });
+    }
+  };
+};
+
+// Middleware para registrar actividades
+const registrarActividad = async (req, accion, modulo, detalle = null) => {
+  try {
+    await pool.query(
+      'INSERT INTO log_actividades (id_usuario, accion, modulo, detalle, ip_address) VALUES ($1, $2, $3, $4, $5)',
+      [req.usuario?.id, accion, modulo, detalle, req.ip]
+    );
+  } catch (error) {
+    console.error('Error al registrar actividad:', error);
+  }
+};
+
 // ========== AUTENTICACIÓN ==========
 
-// Login
 app.post('/api/login', async (req, res) => {
   try {
     const { correo, contrasena } = req.body;
@@ -55,10 +109,22 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
+    // Obtener permisos del usuario
+    const permisosResult = await pool.query(
+      'SELECT * FROM permisos_rol WHERE rol = $1',
+      [usuario.rol]
+    );
+
     const token = jwt.sign(
       { id: usuario.id_usuario, correo: usuario.correo, rol: usuario.rol },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'secret_key_vinsbakery_2024',
       { expiresIn: '8h' }
+    );
+
+    // Registrar login
+    await pool.query(
+      'INSERT INTO log_actividades (id_usuario, accion, modulo) VALUES ($1, $2, $3)',
+      [usuario.id_usuario, 'login', 'autenticacion']
     );
 
     res.json({
@@ -68,19 +134,19 @@ app.post('/api/login', async (req, res) => {
         nombre: usuario.nombre,
         correo: usuario.correo,
         rol: usuario.rol
-      }
+      },
+      permisos: permisosResult.rows
     });
   } catch (error) {
     console.error('Error en login:', error);
     res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
-// Registro de nuevo usuario
+
 app.post('/api/register', async (req, res) => {
   try {
     const { nombre, correo, contrasena, rol } = req.body;
     
-    // Verificar si el correo ya existe
     const usuarioExistente = await pool.query(
       'SELECT * FROM usuario WHERE correo = $1',
       [correo]
@@ -90,14 +156,12 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'El correo ya está registrado' });
     }
 
-    // Encriptar contraseña
     const salt = await bcrypt.genSalt(10);
     const contrasenaEncriptada = await bcrypt.hash(contrasena, salt);
 
-    // Crear usuario
     const result = await pool.query(
       'INSERT INTO usuario (nombre, correo, contrasena, rol) VALUES ($1, $2, $3, $4) RETURNING id_usuario, nombre, correo, rol',
-      [nombre, correo, contrasenaEncriptada, rol || 'administrador']
+      [nombre, correo, contrasenaEncriptada, rol || 'empleado']
     );
 
     res.status(201).json({
@@ -112,8 +176,7 @@ app.post('/api/register', async (req, res) => {
 
 // ========== PRODUCTOS ==========
 
-// Obtener todos los productos
-app.get('/api/productos', async (req, res) => {
+app.get('/api/productos', verificarToken, verificarPermiso('productos', 'puede_ver'), async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM producto WHERE activo = true ORDER BY nombre'
@@ -125,8 +188,7 @@ app.get('/api/productos', async (req, res) => {
   }
 });
 
-// Crear producto
-app.post('/api/productos', async (req, res) => {
+app.post('/api/productos', verificarToken, verificarPermiso('productos', 'puede_crear'), async (req, res) => {
   try {
     const { nombre, descripcion, precio, stock, categoria } = req.body;
     
@@ -135,6 +197,7 @@ app.post('/api/productos', async (req, res) => {
       [nombre, descripcion, precio, stock, categoria]
     );
     
+    await registrarActividad(req, 'crear_producto', 'productos', `Producto: ${nombre}`);
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error al crear producto:', error);
@@ -142,8 +205,7 @@ app.post('/api/productos', async (req, res) => {
   }
 });
 
-// Actualizar producto
-app.put('/api/productos/:id', async (req, res) => {
+app.put('/api/productos/:id', verificarToken, verificarPermiso('productos', 'puede_editar'), async (req, res) => {
   try {
     const { id } = req.params;
     const { nombre, descripcion, precio, stock, categoria } = req.body;
@@ -153,6 +215,7 @@ app.put('/api/productos/:id', async (req, res) => {
       [nombre, descripcion, precio, stock, categoria, id]
     );
     
+    await registrarActividad(req, 'editar_producto', 'productos', `ID: ${id}`);
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error al actualizar producto:', error);
@@ -160,8 +223,7 @@ app.put('/api/productos/:id', async (req, res) => {
   }
 });
 
-// Eliminar producto (lógico)
-app.delete('/api/productos/:id', async (req, res) => {
+app.delete('/api/productos/:id', verificarToken, verificarPermiso('productos', 'puede_eliminar'), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -170,6 +232,7 @@ app.delete('/api/productos/:id', async (req, res) => {
       [id]
     );
     
+    await registrarActividad(req, 'eliminar_producto', 'productos', `ID: ${id}`);
     res.json({ mensaje: 'Producto eliminado' });
   } catch (error) {
     console.error('Error al eliminar producto:', error);
@@ -179,8 +242,7 @@ app.delete('/api/productos/:id', async (req, res) => {
 
 // ========== CLIENTES ==========
 
-// Obtener todos los clientes
-app.get('/api/clientes', async (req, res) => {
+app.get('/api/clientes', verificarToken, verificarPermiso('clientes', 'puede_ver'), async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM cliente WHERE activo = true ORDER BY nombre'
@@ -192,8 +254,7 @@ app.get('/api/clientes', async (req, res) => {
   }
 });
 
-// Buscar cliente por teléfono
-app.get('/api/clientes/telefono/:telefono', async (req, res) => {
+app.get('/api/clientes/telefono/:telefono', verificarToken, async (req, res) => {
   try {
     const { telefono } = req.params;
     
@@ -213,8 +274,7 @@ app.get('/api/clientes/telefono/:telefono', async (req, res) => {
   }
 });
 
-// Crear cliente
-app.post('/api/clientes', async (req, res) => {
+app.post('/api/clientes', verificarToken, verificarPermiso('clientes', 'puede_crear'), async (req, res) => {
   try {
     const { nombre, telefono, correo } = req.body;
     
@@ -223,6 +283,7 @@ app.post('/api/clientes', async (req, res) => {
       [nombre, telefono, correo]
     );
     
+    await registrarActividad(req, 'crear_cliente', 'clientes', `Cliente: ${nombre}`);
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error al crear cliente:', error);
@@ -232,8 +293,7 @@ app.post('/api/clientes', async (req, res) => {
 
 // ========== PEDIDOS ==========
 
-// Obtener todos los pedidos
-app.get('/api/pedidos', async (req, res) => {
+app.get('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_ver'), async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT p.*, c.nombre as nombre_cliente, c.telefono, c.nivel_fidelidad
@@ -248,33 +308,7 @@ app.get('/api/pedidos', async (req, res) => {
   }
 });
 
-// Obtener detalles de un pedido
-app.get('/api/pedidos/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const pedido = await pool.query(
-      'SELECT p.*, c.nombre as nombre_cliente FROM pedido p JOIN cliente c ON p.id_cliente = c.id_cliente WHERE p.id_pedido = $1',
-      [id]
-    );
-    
-    const detalles = await pool.query(
-      'SELECT * FROM detalle_pedido WHERE id_pedido = $1',
-      [id]
-    );
-    
-    res.json({
-      ...pedido.rows[0],
-      detalles: detalles.rows
-    });
-  } catch (error) {
-    console.error('Error al obtener pedido:', error);
-    res.status(500).json({ error: 'Error al obtener pedido' });
-  }
-});
-
-// Crear pedido
-app.post('/api/pedidos', async (req, res) => {
+app.post('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_crear'), async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -282,7 +316,6 @@ app.post('/api/pedidos', async (req, res) => {
     
     const { id_cliente, productos, notas } = req.body;
     
-    // Obtener descuento del cliente
     const clienteResult = await client.query(
       'SELECT descuento_actual FROM cliente WHERE id_cliente = $1',
       [id_cliente]
@@ -290,17 +323,14 @@ app.post('/api/pedidos', async (req, res) => {
     
     const descuentoPorcentaje = clienteResult.rows[0].descuento_actual;
     
-    // Calcular total
     let total = 0;
     for (const prod of productos) {
       total += prod.precio_unitario * prod.cantidad;
     }
     
-    // Aplicar descuento
     const descuento = (total * descuentoPorcentaje) / 100;
     const total_final = total - descuento;
     
-    // Crear pedido
     const pedidoResult = await client.query(
       'INSERT INTO pedido (id_cliente, total, descuento, total_final, notas) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [id_cliente, total, descuento, total_final, notas]
@@ -308,7 +338,6 @@ app.post('/api/pedidos', async (req, res) => {
     
     const id_pedido = pedidoResult.rows[0].id_pedido;
     
-    // Agregar detalles y actualizar stock
     for (const prod of productos) {
       await client.query(
         'INSERT INTO detalle_pedido (id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
@@ -322,6 +351,7 @@ app.post('/api/pedidos', async (req, res) => {
     }
     
     await client.query('COMMIT');
+    await registrarActividad(req, 'crear_pedido', 'pedidos', `Pedido #${id_pedido}`);
     
     res.status(201).json(pedidoResult.rows[0]);
   } catch (error) {
@@ -333,9 +363,75 @@ app.post('/api/pedidos', async (req, res) => {
   }
 });
 
+// ========== ALERTAS DE STOCK ==========
+
+app.get('/api/alertas-stock', verificarToken, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT a.*, p.nombre as nombre_producto, p.categoria
+      FROM alertas_stock a
+      JOIN producto p ON a.id_producto = p.id_producto
+      WHERE a.resuelta = false
+      ORDER BY a.fecha_alerta DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener alertas:', error);
+    res.status(500).json({ error: 'Error al obtener alertas' });
+  }
+});
+
+app.put('/api/alertas-stock/:id/resolver', verificarToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    await pool.query(
+      'UPDATE alertas_stock SET resuelta = true WHERE id_alerta = $1',
+      [id]
+    );
+    
+    res.json({ mensaje: 'Alerta resuelta' });
+  } catch (error) {
+    console.error('Error al resolver alerta:', error);
+    res.status(500).json({ error: 'Error al resolver alerta' });
+  }
+});
+
+// ========== LOG DE ACTIVIDADES ==========
+
+app.get('/api/log-actividades', verificarToken, verificarPermiso('seguridad', 'puede_ver'), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT l.*, u.nombre as usuario_nombre, u.rol
+      FROM log_actividades l
+      JOIN usuario u ON l.id_usuario = u.id_usuario
+      ORDER BY l.fecha_hora DESC
+      LIMIT 100
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener log:', error);
+    res.status(500).json({ error: 'Error al obtener log' });
+  }
+});
+
+// ========== USUARIOS (Solo Administradores) ==========
+
+app.get('/api/usuarios', verificarToken, verificarPermiso('usuarios', 'puede_ver'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id_usuario, nombre, correo, rol, fecha_registro FROM usuario ORDER BY fecha_registro DESC'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener usuarios:', error);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
+
 // ========== ESTADÍSTICAS ==========
 
-app.get('/api/estadisticas', async (req, res) => {
+app.get('/api/estadisticas', verificarToken, async (req, res) => {
   try {
     const totalVentas = await pool.query(
       'SELECT COALESCE(SUM(total_final), 0) as total FROM pedido'
@@ -353,11 +449,16 @@ app.get('/api/estadisticas', async (req, res) => {
       'SELECT COUNT(*) as total FROM producto WHERE activo = true'
     );
     
+    const alertasActivas = await pool.query(
+      'SELECT COUNT(*) as total FROM alertas_stock WHERE resuelta = false'
+    );
+    
     res.json({
       ventas: parseFloat(totalVentas.rows[0].total),
       pedidos: parseInt(totalPedidos.rows[0].total),
       clientes: parseInt(totalClientes.rows[0].total),
-      productos: parseInt(totalProductos.rows[0].total)
+      productos: parseInt(totalProductos.rows[0].total),
+      alertas: parseInt(alertasActivas.rows[0].total)
     });
   } catch (error) {
     console.error('Error al obtener estadísticas:', error);
@@ -365,16 +466,138 @@ app.get('/api/estadisticas', async (req, res) => {
   }
 });
 
+// ========== REPORTES ==========
+
+app.get('/api/reportes/ventas', verificarToken, verificarPermiso('reportes', 'puede_ver'), async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM vista_reporte_ventas LIMIT 50');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener reporte:', error);
+    res.status(500).json({ error: 'Error al obtener reporte' });
+  }
+});
+
+app.get('/api/reportes/productos-vendidos', verificarToken, verificarPermiso('reportes', 'puede_ver'), async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM vista_productos_mas_vendidos LIMIT 20');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener reporte:', error);
+    res.status(500).json({ error: 'Error al obtener reporte' });
+  }
+});
+
+// ========== ENDPOINTS PARA CLIENTES ==========
+
+// Obtener pedidos de un cliente específico
+app.get('/api/pedidos/cliente/:id_usuario', verificarToken, async (req, res) => {
+  try {
+    const { id_usuario } = req.params;
+    
+    // Verificar que el usuario solo pueda ver sus propios pedidos (a menos que sea admin/empleado)
+    if (req.usuario.rol === 'cliente' && req.usuario.id !== parseInt(id_usuario)) {
+      return res.status(403).json({ error: 'No tienes permisos para ver estos pedidos' });
+    }
+    
+    // Buscar cliente asociado al usuario
+    const clienteResult = await pool.query(
+      'SELECT id_cliente FROM cliente WHERE id_usuario = $1',
+      [id_usuario]
+    );
+    
+    if (clienteResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+    
+    const id_cliente = clienteResult.rows[0].id_cliente;
+    
+    const result = await pool.query(`
+      SELECT p.*, c.nombre as nombre_cliente, c.nivel_fidelidad
+      FROM pedido p
+      JOIN cliente c ON p.id_cliente = c.id_cliente
+      WHERE p.id_cliente = $1
+      ORDER BY p.fecha_pedido DESC
+    `, [id_cliente]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener pedidos del cliente:', error);
+    res.status(500).json({ error: 'Error al obtener pedidos' });
+  }
+});
+
+// Obtener perfil de cliente
+app.get('/api/clientes/usuario/:id_usuario', verificarToken, async (req, res) => {
+  try {
+    const { id_usuario } = req.params;
+    
+    // Verificar que el usuario solo pueda ver su propio perfil (a menos que sea admin/empleado)
+    if (req.usuario.rol === 'cliente' && req.usuario.id !== parseInt(id_usuario)) {
+      return res.status(403).json({ error: 'No tienes permisos para ver este perfil' });
+    }
+    
+    const result = await pool.query(
+      'SELECT * FROM cliente WHERE id_usuario = $1',
+      [id_usuario]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Perfil no encontrado' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al obtener perfil:', error);
+    res.status(500).json({ error: 'Error al obtener perfil' });
+  }
+});
+
+// Obtener beneficios de un cliente
+app.get('/api/beneficios/cliente/:id_usuario', verificarToken, async (req, res) => {
+  try {
+    const { id_usuario } = req.params;
+    
+    // Verificar permisos
+    if (req.usuario.rol === 'cliente' && req.usuario.id !== parseInt(id_usuario)) {
+      return res.status(403).json({ error: 'No tienes permisos para ver estos beneficios' });
+    }
+    
+    // Buscar cliente asociado al usuario
+    const clienteResult = await pool.query(
+      'SELECT id_cliente FROM cliente WHERE id_usuario = $1',
+      [id_usuario]
+    );
+    
+    if (clienteResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+    
+    const id_cliente = clienteResult.rows[0].id_cliente;
+    
+    const result = await pool.query(`
+      SELECT * FROM beneficios_cliente
+      WHERE id_cliente = $1
+      ORDER BY fecha_aplicacion DESC
+    `, [id_cliente]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener beneficios:', error);
+    res.status(500).json({ error: 'Error al obtener beneficios' });
+  }
+});
+
 // Ruta principal
 app.get('/', (req, res) => {
   res.json({ 
-    mensaje: '🧁 API Vins Bakery',
-    version: '1.0',
-    estado: 'Activo'
+    mensaje: '🧁 API Vins Bakery - Multi-Roles',
+    version: '2.0',
+    estado: 'Activo',
+    roles: ['administrador', 'empleado', 'cliente', 'sistema']
   });
 });
 
-// Iniciar servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor en http://localhost:${PORT}`);
 });
