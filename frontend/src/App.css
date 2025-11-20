@@ -1020,3 +1020,223 @@ tbody tr:hover {
 ::-webkit-scrollbar-thumb:hover {
   background: #ff4d9d;
 }
+
+/* AGREGAR AL FINAL DE App.css */
+
+/* ========== PERFILES PENDIENTES ========== */
+
+.perfiles-pendientes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.perfil-pendiente-row {
+  background: #fff8e1 !important;
+  transition: all 0.3s;
+}
+
+.perfil-pendiente-row:hover {
+  background: #fff3cd !important;
+  transform: translateX(5px);
+}
+
+.badge-pendiente {
+  background: linear-gradient(135deg, #ff9800 0%, #ffb74d 100%);
+  color: white;
+  padding: 5px 12px;
+  border-radius: 15px;
+  font-size: 0.85em;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.acciones-perfil {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-aprobar {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: bold;
+}
+
+.btn-aprobar:hover {
+  background: linear-gradient(135deg, #388e3c 0%, #4caf50 100%);
+  transform: scale(1.05);
+  box-shadow: 0 3px 10px rgba(76, 175, 80, 0.3);
+}
+
+.btn-rechazar {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #f44336 0%, #ef5350 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: bold;
+}
+
+.btn-rechazar:hover {
+  background: linear-gradient(135deg, #d32f2f 0%, #f44336 100%);
+  transform: scale(1.05);
+  box-shadow: 0 3px 10px rgba(244, 67, 54, 0.3);
+}
+
+.info-aprobacion {
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  padding: 20px;
+  border-radius: 12px;
+  margin-top: 30px;
+  border-left: 4px solid #1976d2;
+}
+
+.info-aprobacion h3 {
+  color: #1976d2;
+  margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.info-aprobacion ul {
+  list-style: none;
+  padding-left: 20px;
+}
+
+.info-aprobacion li {
+  position: relative;
+  padding-left: 25px;
+  margin-bottom: 10px;
+  color: #555;
+  line-height: 1.6;
+}
+
+.info-aprobacion li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: #1976d2;
+  font-weight: bold;
+}
+
+/* Badge de cumpleaños en pedidos */
+.badge-cumpleanos {
+  background: linear-gradient(135deg, #ff69b4 0%, #ff85c1 100%);
+  color: white;
+  padding: 8px 15px;
+  border-radius: 20px;
+  font-size: 0.95em;
+  font-weight: bold;
+  display: inline-block;
+  animation: pulseGlow 2s infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(255, 105, 180, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 105, 180, 0.8);
+    transform: scale(1.05);
+  }
+}
+
+.descuento-cumpleanos {
+  background: linear-gradient(135deg, #fff0f5 0%, #ffe6f7 100%);
+  border: 2px solid #ff69b4;
+  padding: 15px;
+  border-radius: 10px;
+  margin: 15px 0;
+  text-align: center;
+}
+
+.descuento-cumpleanos p {
+  color: #ff69b4;
+  font-weight: bold;
+  font-size: 1.1em;
+  margin: 5px 0;
+}
+
+.mensaje-cumpleanos {
+  background: linear-gradient(135deg, #fff3cd 0%, #fff8e1 100%);
+  border: 2px solid #ffa726;
+  padding: 20px;
+  border-radius: 12px;
+  text-align: center;
+  margin: 20px 0;
+  animation: fadeIn 0.5s ease;
+}
+
+.mensaje-cumpleanos h3 {
+  color: #f57c00;
+  font-size: 1.5em;
+  margin-bottom: 10px;
+}
+
+.mensaje-cumpleanos p {
+  color: #555;
+  font-size: 1.1em;
+  line-height: 1.6;
+}
+
+/* Indicador de perfil pendiente en sidebar */
+.sidebar nav button .badge-count {
+  background: #ff4d6d;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75em;
+  margin-left: 5px;
+  font-weight: bold;
+  animation: pulse 2s infinite;
+}
+
+/* Tabla de perfiles pendientes */
+.table-container.perfiles-pendientes table tbody tr {
+  border-left: 4px solid #ff9800;
+}
+
+.table-container.perfiles-pendientes table tbody tr:hover {
+  background: #fff3cd !important;
+  transform: translateX(3px);
+  box-shadow: 0 2px 8px rgba(255, 152, 0, 0.2);
+}
+
+/* Estado de perfil completo/incompleto */
+.badge.completo {
+  background: #4caf50;
+  color: white;
+}
+
+.badge.incompleto {
+  background: #ff9800;
+  color: white;
+}
+
+/* Responsive para perfiles pendientes */
+@media (max-width: 768px) {
+  .acciones-perfil {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .btn-aprobar,
+  .btn-rechazar {
+    width: 100%;
+  }
+  
+  .info-aprobacion {
+    padding: 15px;
+  }
+}

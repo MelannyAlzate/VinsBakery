@@ -331,6 +331,11 @@ function App() {
   useEffect(() => {
     if (isLoggedIn && permisos.length > 0) {
       cargarDatos();
+      
+      // ✅ Cargar perfiles pendientes si tiene permisos
+      if (tienePermiso('clientes', 'puede_ver')) {
+        cargarPerfilesPendientes();
+      }
     }
   }, [isLoggedIn, permisos]);
 
@@ -444,12 +449,36 @@ function App() {
       (sum, p) => sum + (p.precio_unitario * p.cantidad), 0
     );
     
-    const descuento = pedidoActual.cliente 
-      ? (subtotal * pedidoActual.cliente.descuento_actual) / 100 
-      : 0;
+    if (!pedidoActual.cliente) {
+      return { subtotal, descuento: 0, total: subtotal };
+    }
     
-    return { subtotal, descuento, total: subtotal - descuento };
+    // Descuento base por nivel de fidelidad
+    let descuentoPorcentaje = pedidoActual.cliente.descuento_actual || 0;
+    
+    // ✅ VERIFICAR SI HOY ES EL CUMPLEAÑOS DEL CLIENTE
+    if (pedidoActual.cliente.fecha_nacimiento) {
+      const hoy = new Date();
+      const cumple = new Date(pedidoActual.cliente.fecha_nacimiento);
+      const esCumpleanos = hoy.getDate() === cumple.getDate() && 
+                          hoy.getMonth() === cumple.getMonth();
+      
+      if (esCumpleanos) {
+        descuentoPorcentaje += 15; // ✅ Sumar 15% adicional por cumpleaños
+      }
+    }
+    
+    const descuento = (subtotal * descuentoPorcentaje) / 100;
+    
+    return { 
+      subtotal, 
+      descuento, 
+      total: subtotal - descuento,
+      descuentoPorcentaje // Retornar el porcentaje total para mostrarlo
+    };
   };
+
+  // ✅ MEJORAR LA FUNCIÓN crearPedido PARA MOSTRAR MENSAJE DE CUMPLEAÑOS
 
   const crearPedido = async () => {
     if (!tienePermiso('pedidos', 'puede_crear')) {
@@ -468,18 +497,25 @@ function App() {
     }
 
     try {
-      await axios.post(`${API_URL}/pedidos`, {
+      const response = await axios.post(`${API_URL}/pedidos`, {
         id_cliente: pedidoActual.cliente.id_cliente,
         productos: pedidoActual.productos,
         notas: pedidoActual.notas
       });
       
-      alert('✅ ¡Pedido creado exitosamente!');
+      // ✅ Verificar si hay mensaje de cumpleaños en la respuesta
+      let mensaje = '✅ ¡Pedido creado exitosamente!';
+      if (response.data.mensaje_cumpleanos) {
+        mensaje = `✅ ¡Pedido creado exitosamente!\n\n${response.data.mensaje_cumpleanos}`;
+      }
+      
+      alert(mensaje);
       setPedidoActual({ cliente: null, productos: [], notas: '' });
       cargarDatos();
       setVistaActual('pedidos');
     } catch (error) {
-      alert('❌ Error al crear pedido');
+      console.error('Error al crear pedido:', error);
+      alert('❌ Error al crear pedido: ' + (error.response?.data?.error || error.message));
     }
   };
 
@@ -592,9 +628,21 @@ function App() {
               )}
               
               {tienePermiso('clientes', 'puede_ver') && (
-                <button className={vistaActual === 'clientes' ? 'active' : ''} onClick={() => setVistaActual('clientes')}>
-                  👥 Clientes
-                </button>
+                <>
+                  <button className={vistaActual === 'clientes' ? 'active' : ''} onClick={() => setVistaActual('clientes')}>
+                    👥 Clientes
+                  </button>
+                  {/* ✅ NUEVO BOTÓN */}
+                  <button 
+                    className={vistaActual === 'perfiles-pendientes' ? 'active' : ''} 
+                    onClick={() => {
+                      setVistaActual('perfiles-pendientes');
+                      cargarPerfilesPendientes();
+                    }}
+                  >
+                    ⏳ Perfiles Pendientes {perfilesPendientes.length > 0 && `(${perfilesPendientes.length})`}
+                  </button>
+                </>
               )}
               
               {tienePermiso('pedidos', 'puede_crear') && (
@@ -785,6 +833,150 @@ function App() {
             </div>
           </div>
         )}
+        {vistaActual === 'perfiles-pendientes' && tienePermiso('clientes', 'puede_ver') && (
+          <div>
+            <h1>⏳ Perfiles Pendientes de Aprobación</h1>
+            
+            <button 
+              onClick={cargarPerfilesPendientes} 
+              className="btn-primary" 
+              style={{marginBottom: '20px'}}
+            >
+              🔄 Actualizar Lista
+            </button>
+
+            {perfilesPendientes.length === 0 ? (
+              <div className="section">
+                <p style={{textAlign: 'center', color: '#4caf50', fontSize: '1.2em'}}>
+                  ✅ No hay perfiles pendientes de aprobación
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="section" style={{background: '#fff8e1', marginBottom: '20px', border: '2px solid #ff9800'}}>
+                  <h3 style={{color: '#f57c00', marginBottom: '10px'}}>
+                    ⚠️ Hay {perfilesPendientes.length} perfil{perfilesPendientes.length !== 1 ? 'es' : ''} pendiente{perfilesPendientes.length !== 1 ? 's' : ''} de aprobación
+                  </h3>
+                  <p style={{color: '#666'}}>
+                    Revisa la información de cada cliente antes de aprobar o rechazar su perfil.
+                  </p>
+                </div>
+
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Nombre</th>
+                        <th>Teléfono</th>
+                        <th>Correo</th>
+                        <th>Fecha de Nacimiento</th>
+                        <th>Fecha Registro</th>
+                        <th>Perfil Completo</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {perfilesPendientes.map(cliente => (
+                        <tr key={cliente.id_cliente} style={{background: '#fff8e1'}}>
+                          <td><strong>#{cliente.id_cliente}</strong></td>
+                          <td><strong>{cliente.nombre}</strong></td>
+                          <td>{cliente.telefono || '❌ No registrado'}</td>
+                          <td>{cliente.correo_usuario || cliente.correo || '❌ No registrado'}</td>
+                          <td>
+                            {cliente.fecha_nacimiento ? (
+                              <span>
+                                📅 {new Date(cliente.fecha_nacimiento).toLocaleDateString('es-ES', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric'
+                                })}
+                              </span>
+                            ) : (
+                              <span style={{color: '#ff6f00', fontWeight: 'bold'}}>
+                                ⚠️ Sin fecha de nacimiento
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            {new Date(cliente.fecha_registro || cliente.fecha_registro_usuario).toLocaleDateString('es-ES', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td>
+                            {cliente.perfil_completo ? (
+                              <span className="badge" style={{background: '#4caf50', color: 'white'}}>
+                                ✅ Completo
+                              </span>
+                            ) : (
+                              <span className="badge" style={{background: '#ff9800', color: 'white'}}>
+                                ⚠️ Incompleto
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+                              <button 
+                                onClick={() => aprobarPerfil(cliente.id_cliente)}
+                                className="btn-primary"
+                                style={{
+                                  padding: '8px 16px',
+                                  fontSize: '14px',
+                                  background: 'linear-gradient(135deg, #4caf50 0%, #66bb6a 100%)'
+                                }}
+                                title="Aprobar perfil de cliente"
+                              >
+                                ✅ Aprobar
+                              </button>
+                              <button 
+                                onClick={() => rechazarPerfil(cliente.id_cliente)}
+                                className="btn-delete"
+                                style={{
+                                  padding: '8px 16px',
+                                  fontSize: '14px'
+                                }}
+                                title="Rechazar perfil"
+                              >
+                                ❌ Rechazar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="section" style={{marginTop: '30px', background: '#e3f2fd', border: '2px solid #1976d2'}}>
+                  <h3 style={{color: '#1976d2', marginBottom: '15px'}}>
+                    ℹ️ Información sobre Aprobación de Perfiles
+                  </h3>
+                  <ul style={{lineHeight: '2', color: '#555', paddingLeft: '20px'}}>
+                    <li>
+                      <strong>Perfil Completo:</strong> El cliente ha registrado toda su información incluyendo fecha de nacimiento
+                    </li>
+                    <li>
+                      <strong>Perfil Incompleto:</strong> Falta información (generalmente fecha de nacimiento). Puedes aprobar igual y el cliente podrá completarlo después
+                    </li>
+                    <li>
+                      <strong>Al aprobar:</strong> El cliente podrá iniciar sesión y realizar pedidos en línea inmediatamente
+                    </li>
+                    <li>
+                      <strong>Al rechazar:</strong> El perfil será desactivado y el cliente no podrá acceder al sistema
+                    </li>
+                    <li>
+                      <strong>Beneficios:</strong> Los clientes aprobados comienzan con nivel Bronce y pueden acumular descuentos según sus compras
+                    </li>
+                  </ul>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* NUEVO PEDIDO */}
         {vistaActual === 'nuevo-pedido' && tienePermiso('pedidos', 'puede_crear') && (
@@ -898,24 +1090,45 @@ function App() {
                     </table>
 
                     <div className="totales">
-                      <p>Subtotal: ${calcularTotalPedido().subtotal.toLocaleString()}</p>
-                      {pedidoActual.cliente && (
-                        <p className="descuento">
-                          Descuento ({pedidoActual.cliente.descuento_actual}%): 
-                          -${calcularTotalPedido().descuento.toLocaleString()}
-                        </p>
-                      )}
-                      <h3>Total: ${calcularTotalPedido().total.toLocaleString()}</h3>
-                    </div>
-
-                    <textarea placeholder="Notas del pedido (opcional)" value={pedidoActual.notas}
-                      onChange={(e) => setPedidoActual({...pedidoActual, notas: e.target.value})}
-                      rows="3"
-                    />
-
-                    <button onClick={crearPedido} className="btn-primary btn-large">
-                      Confirmar Pedido
-                    </button>
+                        <p>Subtotal: ${calcularTotalPedido().subtotal.toLocaleString()}</p>
+                        {pedidoActual.cliente && (
+                          <>
+                            {/* Mostrar descuento base */}
+                            <p className="descuento">
+                              Descuento Base ({pedidoActual.cliente.descuento_actual}%): 
+                              -${((calcularTotalPedido().subtotal * pedidoActual.cliente.descuento_actual) / 100).toLocaleString()}
+                            </p>
+                            
+                            {/* ✅ VERIFICAR Y MOSTRAR DESCUENTO DE CUMPLEAÑOS */}
+                            {pedidoActual.cliente.fecha_nacimiento && (() => {
+                              const hoy = new Date();
+                              const cumple = new Date(pedidoActual.cliente.fecha_nacimiento);
+                              const esCumpleanos = hoy.getDate() === cumple.getDate() && 
+                                                  hoy.getMonth() === cumple.getMonth();
+                              
+                              if (esCumpleanos) {
+                                return (
+                                  <>
+                                    <p className="descuento" style={{color: '#ff69b4', fontWeight: 'bold'}}>
+                                      🎂 ¡Descuento Cumpleaños! (15%): 
+                                      -${((calcularTotalPedido().subtotal * 15) / 100).toLocaleString()}
+                                    </p>
+                                    <p style={{color: '#ff69b4', fontStyle: 'italic', fontSize: '0.9em'}}>
+                                      ¡Feliz Cumpleaños {pedidoActual.cliente.nombre}! 🎉
+                                    </p>
+                                  </>
+                                );
+                              }
+                              return null;
+                            })()}
+                            
+                            <p className="descuento" style={{fontSize: '1.1em', fontWeight: 'bold'}}>
+                              Descuento Total: -${calcularTotalPedido().descuento.toLocaleString()}
+                            </p>
+                          </>
+                        )}
+                        <h3>Total a Pagar: ${calcularTotalPedido().total.toLocaleString()}</h3>
+                      </div>
                   </div>
                 )}
               </div>

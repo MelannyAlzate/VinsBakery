@@ -336,103 +336,147 @@ app.get('/api/pedidos', verificarToken, verificarPermiso('pedidos', 'puede_ver')
 });
 
 // Crear pedido (Admin, Empleado o Cliente)
-app.post('/api/pedidos', verificarToken, async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    await client.query('BEGIN');
+// REEMPLAZAR EL ENDPOINT DE CREAR PEDIDO EN backend/server.js
+// Busca: app.post('/api/pedidos', verificarToken, async (req, res) => {
+
+  app.post('/api/pedidos', verificarToken, async (req, res) => {
+    const client = await pool.connect();
     
-    const { id_cliente, productos, notas } = req.body;
-    
-    // Si es un cliente, verificar que tenga perfil aprobado
-    if (req.usuario.rol === 'cliente') {
-      const clienteResult = await client.query(
-        'SELECT id_cliente, perfil_aprobado FROM cliente WHERE id_usuario = $1',
-        [req.usuario.id]
+    try {
+      await client.query('BEGIN');
+      
+      const { id_cliente, productos, notas } = req.body;
+      
+      // Si es un cliente, verificar que tenga perfil aprobado
+      if (req.usuario.rol === 'cliente') {
+        const clienteResult = await client.query(
+          'SELECT id_cliente, perfil_aprobado FROM cliente WHERE id_usuario = $1',
+          [req.usuario.id]
+        );
+        
+        if (clienteResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Perfil de cliente no encontrado' });
+        }
+        
+        if (!clienteResult.rows[0].perfil_aprobado) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ 
+            error: 'Tu perfil aún no ha sido aprobado por un empleado. Por favor espera la aprobación.' 
+          });
+        }
+        
+        if (clienteResult.rows[0].id_cliente !== id_cliente) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'Solo puedes crear pedidos para ti mismo' });
+        }
+      }
+      
+      // ✅ USAR LA FUNCIÓN DE BASE DE DATOS PARA OBTENER DESCUENTO TOTAL (CON CUMPLEAÑOS)
+      const descuentoResult = await client.query(
+        'SELECT obtener_descuento_total($1) as descuento_total',
+        [id_cliente]
       );
       
-      if (clienteResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Perfil de cliente no encontrado' });
+      const descuentoPorcentaje = descuentoResult.rows[0].descuento_total || 0;
+      
+      // Verificar si es cumpleaños para mostrar mensaje
+      const esCumpleanosResult = await client.query(`
+        SELECT 
+          CASE 
+            WHEN fecha_nacimiento IS NOT NULL 
+                AND EXTRACT(MONTH FROM fecha_nacimiento) = EXTRACT(MONTH FROM CURRENT_DATE)
+                AND EXTRACT(DAY FROM fecha_nacimiento) = EXTRACT(DAY FROM CURRENT_DATE)
+            THEN true
+            ELSE false
+          END as es_cumpleanos,
+          nombre,
+          descuento_actual
+        FROM cliente 
+        WHERE id_cliente = $1
+      `, [id_cliente]);
+      
+      const esCumpleanos = esCumpleanosResult.rows[0]?.es_cumpleanos || false;
+      const descuentoBase = esCumpleanosResult.rows[0]?.descuento_actual || 0;
+      
+      // Calcular totales
+      let total = 0;
+      for (const prod of productos) {
+        // Verificar stock
+        const stockCheck = await client.query(
+          'SELECT stock, nombre FROM producto WHERE id_producto = $1',
+          [prod.id_producto]
+        );
+        
+        if (stockCheck.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ 
+            error: `Producto no encontrado: ${prod.nombre}` 
+          });
+        }
+        
+        if (stockCheck.rows[0].stock < prod.cantidad) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ 
+            error: `Stock insuficiente para ${stockCheck.rows[0].nombre}. Disponible: ${stockCheck.rows[0].stock}` 
+          });
+        }
+        
+        total += prod.precio_unitario * prod.cantidad;
       }
       
-      if (!clienteResult.rows[0].perfil_aprobado) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ 
-          error: 'Tu perfil aún no ha sido aprobado por un empleado. Por favor espera la aprobación.' 
-        });
+      const descuento = (total * descuentoPorcentaje) / 100;
+      const total_final = total - descuento;
+      
+      // Crear pedido con notas de cumpleaños si aplica
+      let notasFinal = notas || '';
+      if (esCumpleanos) {
+        notasFinal = `🎂 ¡FELIZ CUMPLEAÑOS! Descuento especial del 15% aplicado. ${notasFinal}`.trim();
       }
       
-      if (clienteResult.rows[0].id_cliente !== id_cliente) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ error: 'Solo puedes crear pedidos para ti mismo' });
+      const pedidoResult = await client.query(
+        'INSERT INTO pedido (id_cliente, total, descuento, total_final, notas, estado) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [id_cliente, total, descuento, total_final, notasFinal, 'pendiente']
+      );
+      
+      const id_pedido = pedidoResult.rows[0].id_pedido;
+      
+      // Agregar productos al pedido
+      for (const prod of productos) {
+        await client.query(
+          'INSERT INTO detalle_pedido (id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
+          [id_pedido, prod.id_producto, prod.nombre, prod.cantidad, prod.precio_unitario, prod.cantidad * prod.precio_unitario]
+        );
+        
+        // Actualizar stock
+        await client.query(
+          'UPDATE producto SET stock = stock - $1 WHERE id_producto = $2',
+          [prod.cantidad, prod.id_producto]
+        );
       }
+      
+      await client.query('COMMIT');
+      await pool.query(
+        'INSERT INTO log_actividades (id_usuario, accion, modulo, detalle) VALUES ($1, $2, $3, $4)',
+        [req.usuario?.id, 'crear_pedido', 'pedidos', `Pedido #${id_pedido}${esCumpleanos ? ' - CUMPLEAÑOS 🎂' : ''}`]
+      );
+      
+      // Respuesta con información de descuento
+      res.status(201).json({
+        ...pedidoResult.rows[0],
+        mensaje_cumpleanos: esCumpleanos ? `🎂 ¡Feliz Cumpleaños! Se aplicó un descuento adicional del 15% (${descuentoBase}% + 15% = ${descuentoPorcentaje}%)` : null,
+        descuento_base: descuentoBase,
+        descuento_cumpleanos: esCumpleanos ? 15 : 0,
+        descuento_total: descuentoPorcentaje
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error al crear pedido:', error);
+      res.status(500).json({ error: 'Error al crear pedido: ' + error.message });
+    } finally {
+      client.release();
     }
-    
-    // Obtener descuento TOTAL del cliente (fidelidad + cumpleaños)
-    const descuentoResult = await client.query(
-      'SELECT obtener_descuento_total($1) as descuento_total',
-      [id_cliente]
-    );
-    
-    const descuentoPorcentaje = descuentoResult.rows[0].descuento_total;
-    
-    // Calcular totales
-    let total = 0;
-    for (const prod of productos) {
-      // Verificar stock
-      const stockCheck = await client.query(
-        'SELECT stock FROM producto WHERE id_producto = $1',
-        [prod.id_producto]
-      );
-      
-      if (stockCheck.rows[0].stock < prod.cantidad) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          error: `Stock insuficiente para ${prod.nombre}. Disponible: ${stockCheck.rows[0].stock}` 
-        });
-      }
-      
-      total += prod.precio_unitario * prod.cantidad;
-    }
-    
-    const descuento = (total * descuentoPorcentaje) / 100;
-    const total_final = total - descuento;
-    
-    // Crear pedido
-    const pedidoResult = await client.query(
-      'INSERT INTO pedido (id_cliente, total, descuento, total_final, notas, estado) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [id_cliente, total, descuento, total_final, notas, 'pendiente']
-    );
-    
-    const id_pedido = pedidoResult.rows[0].id_pedido;
-    
-    // Agregar productos al pedido
-    for (const prod of productos) {
-      await client.query(
-        'INSERT INTO detalle_pedido (id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
-        [id_pedido, prod.id_producto, prod.nombre, prod.cantidad, prod.precio_unitario, prod.cantidad * prod.precio_unitario]
-      );
-      
-      // Actualizar stock
-      await client.query(
-        'UPDATE producto SET stock = stock - $1 WHERE id_producto = $2',
-        [prod.cantidad, prod.id_producto]
-      );
-    }
-    
-    await client.query('COMMIT');
-    await registrarActividad(req, 'crear_pedido', 'pedidos', `Pedido #${id_pedido}`);
-    
-    res.status(201).json(pedidoResult.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error al crear pedido:', error);
-    res.status(500).json({ error: 'Error al crear pedido: ' + error.message });
-  } finally {
-    client.release();
-  }
-});
+  });
 // Actualizar estado del pedido (Admin/Empleado)
 app.put('/api/pedidos/:id/estado', verificarToken, verificarPermiso('pedidos', 'puede_editar'), async (req, res) => {
   try {
@@ -701,44 +745,58 @@ app.get('/api/clientes/pendientes', verificarToken, verificarPermiso('clientes',
   }
 });
 
-// Aprobar perfil de cliente (Admin/Empleado)
-app.put('/api/clientes/:id/aprobar', verificarToken, verificarPermiso('clientes', 'puede_editar'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { notas_admin } = req.body;
-    
-    const result = await pool.query(
-      'UPDATE cliente SET perfil_aprobado = true, perfil_completo = true, notas_admin = $1 WHERE id_cliente = $2 RETURNING *',
-      [notas_admin, id]
-    );
-    
-    await registrarActividad(req, 'aprobar_perfil_cliente', 'clientes', `Cliente ID: ${id}`);
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Error al aprobar perfil:', error);
-    res.status(500).json({ error: 'Error al aprobar perfil' });
-  }
-});
+  // Aprobar perfil de cliente (Admin/Empleado)
+  app.put('/api/clientes/:id/aprobar', verificarToken, verificarPermiso('clientes', 'puede_editar'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { notas_admin } = req.body || {}; // ✅ Hacer opcional
+      
+      const result = await pool.query(
+        'UPDATE cliente SET perfil_aprobado = true, perfil_completo = true, notas_admin = $1 WHERE id_cliente = $2 RETURNING *',
+        [notas_admin || 'Perfil aprobado', id]
+      );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Cliente no encontrado' });
+      }
+      
+      await registrarActividad(req, 'aprobar_perfil_cliente', 'clientes', `Cliente ID: ${id}`);
+      res.json({ 
+        mensaje: 'Perfil aprobado exitosamente',
+        cliente: result.rows[0] 
+      });
+    } catch (error) {
+      console.error('Error al aprobar perfil:', error);
+      res.status(500).json({ error: 'Error al aprobar perfil' });
+    }
+  });
 
-// Rechazar perfil de cliente (Admin/Empleado)
-app.put('/api/clientes/:id/rechazar', verificarToken, verificarPermiso('clientes', 'puede_editar'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { notas_admin } = req.body;
-    
-    const result = await pool.query(
-      'UPDATE cliente SET perfil_aprobado = false, notas_admin = $1 WHERE id_cliente = $2 RETURNING *',
-      [notas_admin, id]
-    );
-    
-    await registrarActividad(req, 'rechazar_perfil_cliente', 'clientes', `Cliente ID: ${id}`);
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Error al rechazar perfil:', error);
-    res.status(500).json({ error: 'Error al rechazar perfil' });
-  }
-});
-
+  // Rechazar perfil de cliente (Admin/Empleado)
+  app.put('/api/clientes/:id/rechazar', verificarToken, verificarPermiso('clientes', 'puede_editar'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { notas_admin } = req.body || {}; // ✅ Hacer opcional
+      
+      // Marcar como no aprobado y desactivar
+      const result = await pool.query(
+        'UPDATE cliente SET perfil_aprobado = false, activo = false, notas_admin = $1 WHERE id_cliente = $2 RETURNING *',
+        [notas_admin || 'Perfil rechazado', id]
+      );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Cliente no encontrado' });
+      }
+      
+      await registrarActividad(req, 'rechazar_perfil_cliente', 'clientes', `Cliente ID: ${id}`);
+      res.json({ 
+        mensaje: 'Perfil rechazado',
+        cliente: result.rows[0] 
+      });
+    } catch (error) {
+      console.error('Error al rechazar perfil:', error);
+      res.status(500).json({ error: 'Error al rechazar perfil' });
+    }
+  });
 // Actualizar fecha de nacimiento del cliente
 app.put('/api/clientes/:id/cumpleanos', verificarToken, async (req, res) => {
   try {
