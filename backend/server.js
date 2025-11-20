@@ -154,7 +154,7 @@ app.post('/api/register', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    const { nombre, correo, contrasena, rol, telefono } = req.body;
+    const { nombre, correo, contrasena, rol, telefono, fecha_nacimiento } = req.body;
     
     const usuarioExistente = await client.query(
       'SELECT * FROM usuario WHERE correo = $1',
@@ -176,18 +176,20 @@ app.post('/api/register', async (req, res) => {
 
     const nuevoUsuario = userResult.rows[0];
 
-    // Si es cliente, crear registro en tabla cliente
+    // Si es cliente, crear registro en tabla cliente (PENDIENTE DE APROBACIÓN)
     if (nuevoUsuario.rol === 'cliente') {
       await client.query(
-        'INSERT INTO cliente (nombre, telefono, correo, id_usuario) VALUES ($1, $2, $3, $4)',
-        [nombre, telefono || '', correo, nuevoUsuario.id_usuario]
+        'INSERT INTO cliente (nombre, telefono, correo, id_usuario, fecha_nacimiento, perfil_aprobado) VALUES ($1, $2, $3, $4, $5, $6)',
+        [nombre, telefono || '', correo, nuevoUsuario.id_usuario, fecha_nacimiento || null, false]
       );
     }
 
     await client.query('COMMIT');
 
     res.status(201).json({
-      mensaje: 'Usuario registrado exitosamente',
+      mensaje: nuevoUsuario.rol === 'cliente' 
+        ? 'Usuario registrado exitosamente. Tu perfil está pendiente de aprobación por un empleado.'
+        : 'Usuario registrado exitosamente',
       usuario: nuevoUsuario
     });
   } catch (error) {
@@ -198,7 +200,6 @@ app.post('/api/register', async (req, res) => {
     client.release();
   }
 });
-
 // ========== PRODUCTOS (Públicos para clientes) ==========
 
 app.get('/api/productos', verificarToken, async (req, res) => {
@@ -343,10 +344,10 @@ app.post('/api/pedidos', verificarToken, async (req, res) => {
     
     const { id_cliente, productos, notas } = req.body;
     
-    // Si es un cliente, verificar que esté creando pedido para sí mismo
+    // Si es un cliente, verificar que tenga perfil aprobado
     if (req.usuario.rol === 'cliente') {
       const clienteResult = await client.query(
-        'SELECT id_cliente FROM cliente WHERE id_usuario = $1',
+        'SELECT id_cliente, perfil_aprobado FROM cliente WHERE id_usuario = $1',
         [req.usuario.id]
       );
       
@@ -355,19 +356,26 @@ app.post('/api/pedidos', verificarToken, async (req, res) => {
         return res.status(404).json({ error: 'Perfil de cliente no encontrado' });
       }
       
+      if (!clienteResult.rows[0].perfil_aprobado) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ 
+          error: 'Tu perfil aún no ha sido aprobado por un empleado. Por favor espera la aprobación.' 
+        });
+      }
+      
       if (clienteResult.rows[0].id_cliente !== id_cliente) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'Solo puedes crear pedidos para ti mismo' });
       }
     }
     
-    // Obtener descuento del cliente
-    const clienteData = await client.query(
-      'SELECT descuento_actual FROM cliente WHERE id_cliente = $1',
+    // Obtener descuento TOTAL del cliente (fidelidad + cumpleaños)
+    const descuentoResult = await client.query(
+      'SELECT obtener_descuento_total($1) as descuento_total',
       [id_cliente]
     );
     
-    const descuentoPorcentaje = clienteData.rows[0].descuento_actual;
+    const descuentoPorcentaje = descuentoResult.rows[0].descuento_total;
     
     // Calcular totales
     let total = 0;
@@ -425,7 +433,6 @@ app.post('/api/pedidos', verificarToken, async (req, res) => {
     client.release();
   }
 });
-
 // Actualizar estado del pedido (Admin/Empleado)
 app.put('/api/pedidos/:id/estado', verificarToken, verificarPermiso('pedidos', 'puede_editar'), async (req, res) => {
   try {
@@ -675,6 +682,208 @@ app.get('/', (req, res) => {
     features: ['Clientes pueden hacer pedidos', 'Fidelización automática', 'Gestión de stock']
   });
 });
+// ========== GESTIÓN DE PERFILES DE CLIENTES ==========
+
+// Obtener perfiles pendientes de aprobación (Admin/Empleado)
+app.get('/api/clientes/pendientes', verificarToken, verificarPermiso('clientes', 'puede_ver'), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT c.*, u.correo as correo_usuario, u.fecha_registro as fecha_registro_usuario
+      FROM cliente c
+      LEFT JOIN usuario u ON c.id_usuario = u.id_usuario
+      WHERE c.perfil_aprobado = false AND c.activo = true
+      ORDER BY c.fecha_registro DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener perfiles pendientes:', error);
+    res.status(500).json({ error: 'Error al obtener perfiles pendientes' });
+  }
+});
+
+// Aprobar perfil de cliente (Admin/Empleado)
+app.put('/api/clientes/:id/aprobar', verificarToken, verificarPermiso('clientes', 'puede_editar'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notas_admin } = req.body;
+    
+    const result = await pool.query(
+      'UPDATE cliente SET perfil_aprobado = true, perfil_completo = true, notas_admin = $1 WHERE id_cliente = $2 RETURNING *',
+      [notas_admin, id]
+    );
+    
+    await registrarActividad(req, 'aprobar_perfil_cliente', 'clientes', `Cliente ID: ${id}`);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al aprobar perfil:', error);
+    res.status(500).json({ error: 'Error al aprobar perfil' });
+  }
+});
+
+// Rechazar perfil de cliente (Admin/Empleado)
+app.put('/api/clientes/:id/rechazar', verificarToken, verificarPermiso('clientes', 'puede_editar'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notas_admin } = req.body;
+    
+    const result = await pool.query(
+      'UPDATE cliente SET perfil_aprobado = false, notas_admin = $1 WHERE id_cliente = $2 RETURNING *',
+      [notas_admin, id]
+    );
+    
+    await registrarActividad(req, 'rechazar_perfil_cliente', 'clientes', `Cliente ID: ${id}`);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al rechazar perfil:', error);
+    res.status(500).json({ error: 'Error al rechazar perfil' });
+  }
+});
+
+// Actualizar fecha de nacimiento del cliente
+app.put('/api/clientes/:id/cumpleanos', verificarToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fecha_nacimiento } = req.body;
+    
+    // Verificar que el usuario solo pueda actualizar su propio perfil o sea admin/empleado
+    if (req.usuario.rol === 'cliente') {
+      const clienteCheck = await pool.query(
+        'SELECT id_cliente FROM cliente WHERE id_usuario = $1',
+        [req.usuario.id]
+      );
+      
+      if (clienteCheck.rows.length === 0 || clienteCheck.rows[0].id_cliente !== parseInt(id)) {
+        return res.status(403).json({ error: 'No tienes permisos para actualizar este perfil' });
+      }
+    }
+    
+    const result = await pool.query(
+      'UPDATE cliente SET fecha_nacimiento = $1, perfil_completo = true WHERE id_cliente = $2 RETURNING *',
+      [fecha_nacimiento, id]
+    );
+    
+    await registrarActividad(req, 'actualizar_cumpleanos', 'clientes', `Cliente ID: ${id}`);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar cumpleaños:', error);
+    res.status(500).json({ error: 'Error al actualizar fecha de nacimiento' });
+  }
+});
+
+// ========== CUMPLEAÑOS Y BENEFICIOS ==========
+
+// Obtener clientes con cumpleaños hoy
+app.get('/api/cumpleanos/hoy', verificarToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM verificar_cumpleanos_hoy()');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener cumpleaños:', error);
+    res.status(500).json({ error: 'Error al obtener cumpleaños' });
+  }
+});
+
+// Obtener clientes con cumpleaños próximos (próximos 7 días)
+app.get('/api/cumpleanos/proximos', verificarToken, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT * FROM clientes_cumpleanos_proximos 
+      WHERE es_proximo = true 
+      ORDER BY mes_cumpleanos, dia_cumpleanos
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener cumpleaños próximos:', error);
+    res.status(500).json({ error: 'Error al obtener cumpleaños próximos' });
+  }
+});
+
+// Verificar si un cliente tiene descuento de cumpleaños HOY
+app.get('/api/clientes/:id/descuento-cumpleanos', verificarToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query(
+      'SELECT calcular_descuento_cliente($1) as descuento_total',
+      [id]
+    );
+    
+    const cliente = await pool.query(
+      'SELECT descuento_actual, fecha_nacimiento FROM cliente WHERE id_cliente = $1',
+      [id]
+    );
+    
+    const esCumpleanos = cliente.rows[0].fecha_nacimiento && 
+      new Date(cliente.rows[0].fecha_nacimiento).getDate() === new Date().getDate() &&
+      new Date(cliente.rows[0].fecha_nacimiento).getMonth() === new Date().getMonth();
+    
+    res.json({
+      descuento_base: cliente.rows[0].descuento_actual,
+      descuento_cumpleanos: esCumpleanos ? 15 : 0,
+      descuento_total: result.rows[0].descuento_total,
+      es_cumpleanos: esCumpleanos,
+      mensaje: esCumpleanos ? '🎂 ¡Feliz Cumpleaños! Tienes 15% de descuento adicional hoy' : null
+    });
+  } catch (error) {
+    console.error('Error al verificar descuento:', error);
+    res.status(500).json({ error: 'Error al verificar descuento' });
+  }
+});
+
+// Endpoint para verificar si usuario tiene perfil de cliente
+app.get('/api/verificar-cliente/:id_usuario', verificarToken, async (req, res) => {
+  try {
+    const { id_usuario } = req.params;
+    
+    const result = await pool.query(
+      'SELECT id_cliente, perfil_aprobado, perfil_completo FROM cliente WHERE id_usuario = $1',
+      [id_usuario]
+    );
+    
+    res.json({
+      tiene_cliente: result.rows.length > 0,
+      perfil_aprobado: result.rows[0]?.perfil_aprobado || false,
+      perfil_completo: result.rows[0]?.perfil_completo || false,
+      id_cliente: result.rows[0]?.id_cliente || null
+    });
+  } catch (error) {
+    console.error('Error al verificar cliente:', error);
+    res.status(500).json({ error: 'Error al verificar cliente' });
+  }
+});
+
+// MODIFICAR EL ENDPOINT DE CREAR PEDIDO PARA INCLUIR DESCUENTO DE CUMPLEAÑOS
+// Encuentra la función crearPedido existente y reemplaza la parte de cálculo de descuento:
+
+/*
+// EN LA FUNCIÓN app.post('/api/pedidos', ...) 
+// Reemplaza esta parte:
+
+const descuentoPorcentaje = clienteData.rows[0].descuento_actual;
+
+// POR ESTA:
+
+// Calcular descuento total (incluyendo cumpleaños)
+const descuentoResult = await client.query(
+  'SELECT calcular_descuento_cliente($1) as descuento_total',
+  [id_cliente]
+);
+const descuentoPorcentaje = descuentoResult.rows[0].descuento_total;
+
+// Verificar si es cumpleaños
+const esCumpleanosResult = await client.query(`
+  SELECT 
+    CASE 
+      WHEN EXTRACT(MONTH FROM fecha_nacimiento) = EXTRACT(MONTH FROM CURRENT_DATE)
+           AND EXTRACT(DAY FROM fecha_nacimiento) = EXTRACT(DAY FROM CURRENT_DATE)
+      THEN true
+      ELSE false
+    END as es_cumpleanos
+  FROM cliente WHERE id_cliente = $1
+`, [id_cliente]);
+
+const esCumpleanos = esCumpleanosResult.rows[0]?.es_cumpleanos || false;
+*/
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor en http://localhost:${PORT}`);

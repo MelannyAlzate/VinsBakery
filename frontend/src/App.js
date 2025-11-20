@@ -23,6 +23,9 @@ function App() {
   const [misPedidos, setMisPedidos] = useState([]);
   const [miPerfil, setMiPerfil] = useState(null);
   const [beneficiosDisponibles, setBeneficiosDisponibles] = useState([]);
+  const [perfilesPendientes, setPerfilesPendientes] = useState([]);
+  const [clientesCumpleanos, setClientesCumpleanos] = useState([]);
+  const [perfilAprobado, setPerfilAprobado] = useState(false);
   
   // NUEVOS ESTADOS PARA FIX
   const [tieneCliente, setTieneCliente] = useState(false);
@@ -59,13 +62,75 @@ function App() {
     try {
       const response = await axios.get(`${API_URL}/verificar-cliente/${usuario.id}`);
       setTieneCliente(response.data.tiene_cliente);
+      setPerfilAprobado(response.data.perfil_aprobado);
       
       if (!response.data.tiene_cliente) {
         console.warn('Usuario sin perfil de cliente asociado');
+      } else if (!response.data.perfil_aprobado) {
+        console.warn('Perfil pendiente de aprobación');
       }
     } catch (error) {
       console.error('Error al verificar cliente:', error);
       setTieneCliente(false);
+      setPerfilAprobado(false);
+    }
+  };
+  // Cargar perfiles pendientes
+  const cargarPerfilesPendientes = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/clientes/pendientes`);
+      setPerfilesPendientes(response.data);
+    } catch (error) {
+      console.error('Error al cargar perfiles pendientes:', error);
+    }
+  };
+
+  // Aprobar perfil
+  const aprobarPerfil = async (id) => {
+    if (window.confirm('¿Aprobar este perfil de cliente?')) {
+      try {
+        await axios.put(`${API_URL}/clientes/${id}/aprobar`);
+        alert('✅ Perfil aprobado exitosamente');
+        cargarPerfilesPendientes();
+      } catch (error) {
+        alert('❌ Error al aprobar perfil');
+      }
+    }
+  };
+
+  // Rechazar perfil
+  const rechazarPerfil = async (id) => {
+    if (window.confirm('¿Rechazar este perfil de cliente? Esta acción no se puede deshacer.')) {
+      try {
+        await axios.delete(`${API_URL}/clientes/${id}/rechazar`);
+        alert('✅ Perfil rechazado');
+        cargarPerfilesPendientes();
+      } catch (error) {
+        alert('❌ Error al rechazar perfil');
+      }
+    }
+  };
+
+  // Cargar clientes con cumpleaños
+  const cargarCumpleanos = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/clientes/cumpleanos-mes`);
+      setClientesCumpleanos(response.data);
+    } catch (error) {
+      console.error('Error al cargar cumpleaños:', error);
+    }
+  };
+
+  // Actualizar fecha de nacimiento
+  const actualizarFechaNacimiento = async (id, fecha) => {
+    try {
+      await axios.put(`${API_URL}/clientes/${id}/fecha-nacimiento`, {
+        fecha_nacimiento: fecha
+      });
+      alert('✅ Fecha de nacimiento actualizada');
+      cargarMiPerfil();
+    } catch (error) {
+      alert('❌ Error al actualizar fecha de nacimiento');
     }
   };
 
